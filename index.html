@@ -22,6 +22,17 @@
         .status-มาเรียน { background-color: #d1fae5; color: #065f46; border-color: #10b981; }
         .status-ขาดเรียน { background-color: #fee2e2; color: #991b1b; border-color: #ef4444; }
         .status-ลา { background-color: #fef3c7; color: #92400e; border-color: #f59e0b; }
+        .status-มาสาย { background-color: #fef9c3; color: #854d0e; border-color: #eab308; }
+
+        .filter-chip { padding: 6px 16px; border-radius: 9999px; font-weight: 600; font-size: 0.875rem; border: 2px solid #e5e7eb; background: #fff; color: #6b7280; cursor: pointer; transition: all .15s; }
+        .filter-chip.active { background: #7c3aed; color: #fff; border-color: #7c3aed; }
+
+        @media print {
+            body * { visibility: hidden; }
+            #summary-table-container, #summary-table-container * { visibility: visible; }
+            #summary-table-container { position: absolute; left: 0; top: 0; width: 100%; }
+            select { -webkit-appearance: none; appearance: none; border: none !important; background: none !important; }
+        }
     </style>
           <script>
     // ป้องกันคลิกขวา
@@ -58,6 +69,9 @@
             <button id="btn-tab-register" onclick="switchTab('register')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-indigo-600 hover:text-white transition">📝 ลงทะเบียน</button>
             <button id="btn-tab-checkin" onclick="switchTab('checkin')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-green-600 hover:text-white transition">✅ เช็คชื่อ</button>
             <button id="btn-tab-summary" onclick="switchTab('summary')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-purple-600 hover:text-white transition">📊 สรุปรายวัน</button>
+            <button id="btn-tab-reports" onclick="switchTab('reports')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-pink-600 hover:text-white transition">📈 รายงาน</button>
+            <button id="btn-tab-leave" onclick="switchTab('leave')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-yellow-500 hover:text-white transition">🙋 แจ้งลา</button>
+            <button id="btn-tab-manage" onclick="switchTab('manage')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-teal-600 hover:text-white transition">🗂️ จัดการนักเรียน</button>
             <button id="btn-tab-howto" onclick="switchTab('howto')" class="px-5 py-2 bg-gray-300 text-gray-700 font-bold rounded-full shadow-md hover:bg-orange-500 hover:text-white transition">📖 วิธีใช้งาน</button>
         </div>
 
@@ -77,12 +91,19 @@
                         <h3 class="text-lg font-semibold text-gray-700">ลงทะเบียนใบหน้าแล้ว</h3>
                         <p id="dash-registered" class="text-3xl font-bold text-green-600 mt-2">-</p>
                     </div>
-                    <div class="bg-red-50 rounded-xl p-6 text-center border border-red-100 shadow-sm">
+                    <div class="bg-red-50 rounded-xl p-6 text-center border border-red-100 shadow-sm cursor-pointer hover:bg-red-100 transition" onclick="toggleUnregisteredPanel()">
                         <div class="text-red-500 text-4xl mb-2">⚠️</div>
                         <h3 class="text-lg font-semibold text-gray-700">ยังไม่ลงทะเบียน</h3>
                         <p id="dash-unregistered" class="text-3xl font-bold text-red-600 mt-2">-</p>
+                        <p class="text-xs text-red-400 mt-1">(คลิกเพื่อดูรายชื่อ)</p>
                     </div>
                 </div>
+
+                <div id="unregistered-panel" class="hidden mb-8 bg-red-50 border border-red-100 rounded-xl p-4 text-left">
+                    <h4 class="font-bold text-red-700 mb-2">รายชื่อที่ยังไม่ลงทะเบียนใบหน้า</h4>
+                    <ul id="unregistered-ul" class="list-disc pl-5 text-gray-700 space-y-1 max-h-60 overflow-y-auto custom-scrollbar"></ul>
+                </div>
+
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button onclick="switchTab('register')" class="p-4 bg-indigo-600 text-white rounded-xl shadow hover:bg-indigo-700 transition font-bold text-lg flex items-center justify-center gap-2">
@@ -104,6 +125,7 @@
                 
                 <div class="video-wrapper">
                     <video id="video" autoplay muted playsinline></video>
+                    <button id="btn-switch-camera" onclick="switchCamera()" title="สลับกล้องหน้า/หลัง" class="absolute top-3 right-3 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full w-10 h-10 flex items-center justify-center text-xl transition">🔄</button>
                 </div>
 
                 <div id="register-ui" class="mt-6 hidden">
@@ -121,6 +143,16 @@
                 <div id="checkin-ui" class="mt-6 hidden">
                     <div class="p-4 bg-green-50 rounded-xl border border-green-200 min-h-[120px] flex items-center justify-center flex-col" id="result-box">
                         <p class="text-gray-600 text-lg">กรุณามองที่กล้องเพื่อเช็คชื่อ...</p>
+                    </div>
+
+                    <div class="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200 text-left">
+                        <p class="text-sm font-semibold text-gray-600 mb-2">✋ เช็คชื่อด้วยมือ (เผื่อกล้องจำหน้าไม่ได้)</p>
+                        <div class="flex gap-2">
+                            <select id="manual-checkin-select" class="flex-1 p-2 border rounded-lg text-sm">
+                                <option value="">-- เลือกนักเรียน --</option>
+                            </select>
+                            <button onclick="manualCheckIn()" class="px-4 py-2 bg-gray-700 text-white text-sm font-bold rounded-lg hover:bg-gray-800 transition">เช็คชื่อ</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -143,11 +175,25 @@
         <div id="summary-section" class="bg-white rounded-2xl shadow-lg p-6 text-center max-w-5xl mx-auto w-full hidden">
             <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3">📊 สรุปการมาเรียนรายวัน (ทุกคน)</h2>
             
-            <div class="flex justify-center items-center flex-wrap space-x-0 space-y-2 md:space-y-0 md:space-x-4 mb-6">
+            <div class="flex justify-center items-center flex-wrap space-x-0 space-y-2 md:space-y-0 md:space-x-4 mb-4">
                 <input type="date" id="summary-date" class="p-3 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
                 <button onclick="fetchSummaryData()" class="px-8 py-3 bg-purple-600 text-white font-bold rounded-xl shadow-lg hover:bg-purple-700 transition">
                     🔍 ค้นหาข้อมูล
                 </button>
+            </div>
+
+            <div class="flex justify-center items-center flex-wrap gap-3 mb-4">
+                <input type="text" id="summary-search" oninput="applySummaryFilters()" placeholder="🔎 ค้นหาชื่อ/รหัสนักเรียน..." class="p-2 border border-gray-300 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-purple-400">
+                <button class="filter-chip active" data-status="all" onclick="setStatusFilter('all', this)">ทั้งหมด</button>
+                <button class="filter-chip" data-status="มาเรียน" onclick="setStatusFilter('มาเรียน', this)">มาเรียน</button>
+                <button class="filter-chip" data-status="มาสาย" onclick="setStatusFilter('มาสาย', this)">มาสาย</button>
+                <button class="filter-chip" data-status="ขาดเรียน" onclick="setStatusFilter('ขาดเรียน', this)">ขาดเรียน</button>
+                <button class="filter-chip" data-status="ลา" onclick="setStatusFilter('ลา', this)">ลา</button>
+            </div>
+
+            <div class="flex justify-center gap-3 mb-6">
+                <button onclick="exportSummaryToExcel()" class="px-5 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg shadow hover:bg-emerald-700 transition">📥 ส่งออก Excel (CSV)</button>
+                <button onclick="exportSummaryToPDF()" class="px-5 py-2 bg-red-600 text-white text-sm font-bold rounded-lg shadow hover:bg-red-700 transition">🖨️ ส่งออก PDF</button>
             </div>
 
             <div id="summary-loading" class="text-gray-500 py-8 hidden animate-pulse font-medium text-lg">กำลังโหลดข้อมูล...</div>
@@ -210,6 +256,115 @@
                         <li>ครูสามารถ <strong>เปลี่ยนสถานะ (เช่น ขาด -> ลา)</strong> ได้โดยการกดที่ปุ่มสถานะของนักเรียนคนนั้น ข้อมูลจะบันทึกไปที่ Google Sheet ทันที</li>
                     </ul>
                 </div>
+            </div>
+        </div>
+
+        <!-- 5. หน้ารายงาน (สรุปรายเดือน / กลุ่มเสี่ยง) -->
+        <div id="reports-section" class="bg-white rounded-2xl shadow-lg p-6 max-w-5xl mx-auto w-full hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3 text-center">📈 รายงาน & สถิติ</h2>
+
+            <div class="flex justify-center items-center flex-wrap gap-3 mb-6">
+                <select id="report-month" class="p-3 border border-gray-300 rounded-lg text-base"></select>
+                <select id="report-year" class="p-3 border border-gray-300 rounded-lg text-base"></select>
+                <button onclick="fetchMonthlySummary()" class="px-6 py-3 bg-pink-600 text-white font-bold rounded-xl shadow hover:bg-pink-700 transition">📅 ดูสรุปรายเดือน</button>
+                <button onclick="exportMonthlyToSheetUI()" class="px-6 py-3 bg-pink-100 text-pink-700 font-bold rounded-xl shadow hover:bg-pink-200 transition">💾 บันทึกสรุปลงชีตใหม่</button>
+            </div>
+
+            <div id="monthly-summary-empty" class="text-gray-400 text-center py-6 italic">เลือกเดือน/ปี แล้วกด "ดูสรุปรายเดือน"</div>
+            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 mb-10 hidden" id="monthly-summary-container">
+                <table class="min-w-full bg-white text-left text-gray-700 text-sm">
+                    <thead class="bg-pink-50 border-b border-pink-100 text-pink-800 font-semibold">
+                        <tr>
+                            <th class="py-2 px-3">รหัส</th>
+                            <th class="py-2 px-3">ชื่อ-นามสกุล</th>
+                            <th class="py-2 px-3">ชั้น</th>
+                            <th class="py-2 px-3 text-center">มาเรียน</th>
+                            <th class="py-2 px-3 text-center">มาสาย</th>
+                            <th class="py-2 px-3 text-center">ขาดเรียน</th>
+                            <th class="py-2 px-3 text-center">ลา</th>
+                        </tr>
+                    </thead>
+                    <tbody id="monthly-summary-tbody" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+
+            <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-3 text-center">🚨 นักเรียนกลุ่มเสี่ยง (อัตรามาเรียนต่ำ)</h3>
+            <div class="flex justify-center items-center gap-3 mb-4">
+                <label class="text-sm text-gray-600">เกณฑ์ต่ำกว่า (%):</label>
+                <input type="number" id="risk-threshold" value="80" class="w-20 p-2 border rounded-lg text-center">
+                <button onclick="fetchRiskStudents()" class="px-6 py-2 bg-red-600 text-white font-bold rounded-xl shadow hover:bg-red-700 transition">ค้นหา</button>
+            </div>
+            <div id="risk-list-empty" class="text-gray-400 text-center py-6 italic">ยังไม่มีข้อมูล</div>
+            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 hidden" id="risk-list-container">
+                <table class="min-w-full bg-white text-left text-gray-700 text-sm">
+                    <thead class="bg-red-50 border-b border-red-100 text-red-800 font-semibold">
+                        <tr>
+                            <th class="py-2 px-3">รหัส</th>
+                            <th class="py-2 px-3">ชื่อ-นามสกุล</th>
+                            <th class="py-2 px-3">ชั้น</th>
+                            <th class="py-2 px-3 text-center">อัตรามาเรียน (%)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="risk-list-tbody" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 6. หน้าแจ้งลาล่วงหน้า -->
+        <div id="leave-section" class="bg-white rounded-2xl shadow-lg p-8 max-w-2xl mx-auto w-full hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3 text-center">🙋 แจ้งลาล่วงหน้า</h2>
+            <div class="space-y-4 text-left">
+                <div>
+                    <label class="text-sm font-semibold text-gray-600 mb-1 block">นักเรียน</label>
+                    <select id="leave-student-select" class="w-full p-3 border rounded-lg">
+                        <option value="">-- เลือกนักเรียน --</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-sm font-semibold text-gray-600 mb-1 block">วันที่ลา</label>
+                    <input type="date" id="leave-date" class="w-full p-3 border rounded-lg">
+                </div>
+                <div>
+                    <label class="text-sm font-semibold text-gray-600 mb-1 block">เหตุผล</label>
+                    <textarea id="leave-reason" rows="3" class="w-full p-3 border rounded-lg" placeholder="เช่น ลาป่วย, ลากิจ..."></textarea>
+                </div>
+                <button onclick="submitLeaveRequest()" class="w-full py-3 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition">📨 ส่งคำขอลา</button>
+                <p id="leave-msg" class="text-center font-bold"></p>
+            </div>
+        </div>
+
+        <!-- 7. หน้าจัดการนักเรียน -->
+        <div id="manage-section" class="bg-white rounded-2xl shadow-lg p-8 max-w-4xl mx-auto w-full hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3 text-center">🗂️ จัดการนักเรียน</h2>
+
+            <div class="bg-gray-50 rounded-xl p-5 border border-gray-100 mb-8 text-left">
+                <h3 class="font-bold text-lg text-teal-700 mb-3">➕ เพิ่มนักเรียนใหม่</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <input id="add-no" placeholder="เลขที่" class="p-2 border rounded-lg">
+                    <input id="add-id" placeholder="รหัสนักเรียน *" class="p-2 border rounded-lg">
+                    <input id="add-prefix" placeholder="คำนำหน้า" class="p-2 border rounded-lg">
+                    <input id="add-firstname" placeholder="ชื่อ" class="p-2 border rounded-lg">
+                    <input id="add-lastname" placeholder="นามสกุล" class="p-2 border rounded-lg">
+                    <input id="add-class" placeholder="ชั้น" class="p-2 border rounded-lg">
+                    <input id="add-subject" placeholder="รายวิชาที่เรียน" class="p-2 border rounded-lg">
+                    <input id="add-lineid" placeholder="LINE User ID ผู้ปกครอง (ถ้ามี)" class="p-2 border rounded-lg">
+                </div>
+                <button onclick="addStudentUI()" class="mt-4 px-6 py-2 bg-teal-600 text-white font-bold rounded-xl shadow hover:bg-teal-700 transition">บันทึกนักเรียนใหม่</button>
+                <p id="add-student-msg" class="mt-2 font-bold"></p>
+            </div>
+
+            <div class="bg-gray-50 rounded-xl p-5 border border-gray-100 mb-8 text-left">
+                <h3 class="font-bold text-lg text-teal-700 mb-3">📥 นำเข้ารายชื่อทีละหลายคน (CSV)</h3>
+                <p class="text-xs text-gray-500 mb-2">รูปแบบ: เลขที่,รหัสนักเรียน,คำนำหน้า,ชื่อ,นามสกุล,ชั้น,รายวิชาที่เรียน,LINE ผู้ปกครอง (คั่นด้วยจุลภาค บรรทัดละ 1 คน)</p>
+                <textarea id="bulk-csv" rows="5" class="w-full p-3 border rounded-lg font-mono text-sm" placeholder="1,66001,ด.ช.,สมชาย,ใจดี,ม.1/1,วิทยาศาสตร์,"></textarea>
+                <button onclick="bulkImportUI()" class="mt-3 px-6 py-2 bg-teal-600 text-white font-bold rounded-xl shadow hover:bg-teal-700 transition">นำเข้าข้อมูล</button>
+                <p id="bulk-import-msg" class="mt-2 font-bold"></p>
+            </div>
+
+            <div class="bg-gray-50 rounded-xl p-5 border border-gray-100 text-left">
+                <h3 class="font-bold text-lg text-teal-700 mb-3">👤 รายชื่อนักเรียนทั้งหมด</h3>
+                <input type="text" id="manage-search" oninput="renderManageList()" placeholder="🔎 ค้นหาชื่อ/รหัส..." class="w-full p-2 border rounded-lg mb-3 text-sm">
+                <div class="max-h-96 overflow-y-auto custom-scrollbar space-y-2" id="manage-student-list"></div>
             </div>
         </div>
 
@@ -345,19 +500,26 @@
             document.getElementById('main-container').classList.add('hidden');
             document.getElementById('summary-section').classList.add('hidden');
             document.getElementById('howto-section').classList.add('hidden');
+            document.getElementById('reports-section').classList.add('hidden');
+            document.getElementById('leave-section').classList.add('hidden');
+            document.getElementById('manage-section').classList.add('hidden');
             
             document.getElementById('register-ui').classList.add('hidden');
             document.getElementById('checkin-ui').classList.add('hidden');
             document.getElementById('attendance-list-section').classList.add('hidden');
             document.getElementById('attendance-list-section').classList.remove('flex');
             
-            ['home', 'register', 'checkin', 'summary', 'howto'].forEach(t => {
+            ['home', 'register', 'checkin', 'summary', 'reports', 'leave', 'manage', 'howto'].forEach(t => {
                 const btn = document.getElementById(`btn-tab-${t}`);
+                if (!btn) return;
                 btn.className = "px-5 py-2 font-bold rounded-full shadow-md transition bg-gray-300 text-gray-700 hover:text-white";
                 if(t==='home') btn.classList.add('hover:bg-blue-600');
                 if(t==='register') btn.classList.add('hover:bg-indigo-600');
                 if(t==='checkin') btn.classList.add('hover:bg-green-600');
                 if(t==='summary') btn.classList.add('hover:bg-purple-600');
+                if(t==='reports') btn.classList.add('hover:bg-pink-600');
+                if(t==='leave') btn.classList.add('hover:bg-yellow-500');
+                if(t==='manage') btn.classList.add('hover:bg-teal-600');
                 if(t==='howto') btn.classList.add('hover:bg-orange-500');
             });
 
@@ -391,6 +553,7 @@
                 btn.classList.replace('text-gray-700', 'text-white');
                 
                 titleText.innerText = "✅ ระบบเช็คชื่ออัตโนมัติ";
+                updateManualCheckinDropdown();
                 await setupFaceMatcher();
             } else if (mode === 'summary') {
                 document.getElementById('summary-section').classList.remove('hidden');
@@ -398,6 +561,24 @@
                 btn.classList.replace('bg-gray-300', 'bg-purple-600');
                 btn.classList.replace('text-gray-700', 'text-white');
                 fetchSummaryData();
+            } else if (mode === 'reports') {
+                document.getElementById('reports-section').classList.remove('hidden');
+                const btn = document.getElementById('btn-tab-reports');
+                btn.classList.replace('bg-gray-300', 'bg-pink-600');
+                btn.classList.replace('text-gray-700', 'text-white');
+                initReportSelectors();
+            } else if (mode === 'leave') {
+                document.getElementById('leave-section').classList.remove('hidden');
+                const btn = document.getElementById('btn-tab-leave');
+                btn.classList.replace('bg-gray-300', 'bg-yellow-500');
+                btn.classList.replace('text-gray-700', 'text-white');
+                updateLeaveStudentDropdown();
+            } else if (mode === 'manage') {
+                document.getElementById('manage-section').classList.remove('hidden');
+                const btn = document.getElementById('btn-tab-manage');
+                btn.classList.replace('bg-gray-300', 'bg-teal-600');
+                btn.classList.replace('text-gray-700', 'text-white');
+                renderManageList();
             } else if (mode === 'howto') {
                 document.getElementById('howto-section').classList.remove('hidden');
                 const btn = document.getElementById('btn-tab-howto');
