@@ -178,6 +178,9 @@
             
             <div class="flex justify-center items-center flex-wrap space-x-0 space-y-2 md:space-y-0 md:space-x-4 mb-4">
                 <input type="date" id="summary-date" class="p-3 border border-gray-300 rounded-lg text-lg focus:outline-none focus:ring-2 focus:ring-purple-500">
+                <select id="summary-class-filter" class="p-3 border border-gray-300 rounded-lg text-base">
+                    <option value="">ทุกชั้นเรียน</option>
+                </select>
                 <button onclick="fetchSummaryData()" class="px-8 py-3 bg-purple-600 text-white font-bold rounded-xl shadow-lg hover:bg-purple-700 transition">
                     🔍 ค้นหาข้อมูล
                 </button>
@@ -192,9 +195,22 @@
                 <button class="filter-chip" data-status="ลา" onclick="setStatusFilter('ลา', this)">ลา</button>
             </div>
 
-            <div class="flex justify-center gap-3 mb-6">
+            <div class="flex justify-center flex-wrap gap-3 mb-6">
                 <button onclick="exportSummaryToExcel()" class="px-5 py-2 bg-emerald-600 text-white text-sm font-bold rounded-lg shadow hover:bg-emerald-700 transition">📥 ส่งออก Excel (CSV)</button>
                 <button onclick="exportSummaryToPDF()" class="px-5 py-2 bg-red-600 text-white text-sm font-bold rounded-lg shadow hover:bg-red-700 transition">🖨️ ส่งออก PDF</button>
+                <button onclick="fetchLateComersReport()" class="px-5 py-2 bg-amber-600 text-white text-sm font-bold rounded-lg shadow hover:bg-amber-700 transition">⏰ รายงานมาสาย</button>
+            </div>
+
+            <div id="latecomers-panel" class="hidden mb-6 bg-amber-50 border border-amber-100 rounded-xl p-4 text-left">
+                <div class="flex justify-between items-center mb-2">
+                    <h4 class="font-bold text-amber-700">⏰ รายงานเวลามาเรียน (ตัดที่ <span id="latecomers-cutoff-label">08:30</span>)</h4>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs text-gray-500">เวลาตัด:</label>
+                        <input type="time" id="latecomers-cutoff" value="08:30" class="p-1 border rounded text-xs">
+                        <button onclick="fetchLateComersReport()" class="px-2 py-1 bg-amber-500 text-white text-xs font-bold rounded">อัปเดต</button>
+                    </div>
+                </div>
+                <div id="latecomers-content" class="text-sm text-gray-700"></div>
             </div>
 
             <div id="summary-loading" class="text-gray-500 py-8 hidden animate-pulse font-medium text-lg">กำลังโหลดข้อมูล...</div>
@@ -257,6 +273,14 @@
                         <li>ครูสามารถ <strong>เปลี่ยนสถานะ (เช่น ขาด -> ลา)</strong> ได้โดยการกดที่ปุ่มสถานะของนักเรียนคนนั้น ข้อมูลจะบันทึกไปที่ Google Sheet ทันที</li>
                     </ul>
                 </div>
+
+                <div class="bg-gray-50 p-5 rounded-xl border border-gray-100">
+                    <h3 class="font-bold text-lg text-amber-700 mb-2">4. จัดการคำขอลา</h3>
+                    <ul class="list-disc pl-5 space-y-1">
+                        <li>ไปที่แท็บ <strong>"จัดการคำขอลา"</strong> เพื่อดูคำขอลาทั้งหมดที่ผู้ปกครอง/นักเรียนส่งเข้ามา</li>
+                        <li>ครูสามารถกด <strong>"อนุมัติ"</strong> หรือ <strong>"ไม่อนุมัติ"</strong> ซึ่งจะปรับสถานะการเช็คชื่อของวันนั้นให้อัตโนมัติ</li>
+                    </ul>
+                </div>
             </div>
         </div>
 
@@ -267,12 +291,16 @@
             <div class="flex justify-center items-center flex-wrap gap-3 mb-6">
                 <select id="report-month" class="p-3 border border-gray-300 rounded-lg text-base"></select>
                 <select id="report-year" class="p-3 border border-gray-300 rounded-lg text-base"></select>
+                <select id="report-class-filter" class="p-3 border border-gray-300 rounded-lg text-base">
+                    <option value="">ทุกชั้นเรียน</option>
+                </select>
                 <button onclick="fetchMonthlySummary()" class="px-6 py-3 bg-pink-600 text-white font-bold rounded-xl shadow hover:bg-pink-700 transition">📅 ดูสรุปรายเดือน</button>
                 <button onclick="exportMonthlyToSheetUI()" class="px-6 py-3 bg-pink-100 text-pink-700 font-bold rounded-xl shadow hover:bg-pink-200 transition">💾 บันทึกสรุปลงชีตใหม่</button>
+                <button onclick="fetchAttendanceTrend()" class="px-6 py-3 bg-indigo-100 text-indigo-700 font-bold rounded-xl shadow hover:bg-indigo-200 transition">📉 ดูแนวโน้มรายวัน</button>
             </div>
 
             <div id="monthly-summary-empty" class="text-gray-400 text-center py-6 italic">เลือกเดือน/ปี แล้วกด "ดูสรุปรายเดือน"</div>
-            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 mb-10 hidden" id="monthly-summary-container">
+            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 mb-6 hidden" id="monthly-summary-container">
                 <table class="min-w-full bg-white text-left text-gray-700 text-sm">
                     <thead class="bg-pink-50 border-b border-pink-100 text-pink-800 font-semibold">
                         <tr>
@@ -283,9 +311,26 @@
                             <th class="py-2 px-3 text-center">มาสาย</th>
                             <th class="py-2 px-3 text-center">ขาดเรียน</th>
                             <th class="py-2 px-3 text-center">ลา</th>
+                            <th class="py-2 px-3 text-center">ประวัติ</th>
                         </tr>
                     </thead>
                     <tbody id="monthly-summary-tbody" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+
+            <div id="trend-container" class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 mb-10 hidden">
+                <h3 class="text-lg font-bold text-indigo-700 p-3 border-b bg-indigo-50">📉 แนวโน้มรายวัน</h3>
+                <table class="min-w-full bg-white text-left text-gray-700 text-sm">
+                    <thead class="bg-indigo-50 border-b border-indigo-100 text-indigo-800 font-semibold">
+                        <tr>
+                            <th class="py-2 px-3">วันที่</th>
+                            <th class="py-2 px-3 text-center">มาเรียน</th>
+                            <th class="py-2 px-3 text-center">มาสาย</th>
+                            <th class="py-2 px-3 text-center">ขาดเรียน</th>
+                            <th class="py-2 px-3 text-center">ลา</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trend-tbody" class="divide-y divide-gray-100"></tbody>
                 </table>
             </div>
 
@@ -296,7 +341,7 @@
                 <button onclick="fetchRiskStudents()" class="px-6 py-2 bg-red-600 text-white font-bold rounded-xl shadow hover:bg-red-700 transition">ค้นหา</button>
             </div>
             <div id="risk-list-empty" class="text-gray-400 text-center py-6 italic">ยังไม่มีข้อมูล</div>
-            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 hidden" id="risk-list-container">
+            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 hidden mb-10" id="risk-list-container">
                 <table class="min-w-full bg-white text-left text-gray-700 text-sm">
                     <thead class="bg-red-50 border-b border-red-100 text-red-800 font-semibold">
                         <tr>
@@ -304,9 +349,34 @@
                             <th class="py-2 px-3">ชื่อ-นามสกุล</th>
                             <th class="py-2 px-3">ชั้น</th>
                             <th class="py-2 px-3 text-center">อัตรามาเรียน (%)</th>
+                            <th class="py-2 px-3 text-center">แจ้งเตือน</th>
                         </tr>
                     </thead>
                     <tbody id="risk-list-tbody" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
+
+            <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-3 text-center">🔍 ค้นหาประวัติ/อัตรามาเรียนรายบุคคล</h3>
+            <div class="flex justify-center items-center flex-wrap gap-3 mb-4">
+                <select id="history-student-select" class="p-3 border border-gray-300 rounded-lg text-base min-w-[220px]">
+                    <option value="">-- เลือกนักเรียน --</option>
+                </select>
+                <input type="date" id="history-start-date" class="p-3 border border-gray-300 rounded-lg text-sm">
+                <input type="date" id="history-end-date" class="p-3 border border-gray-300 rounded-lg text-sm">
+                <button onclick="fetchStudentHistory()" class="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl shadow hover:bg-blue-700 transition">ดูประวัติ</button>
+            </div>
+            <div id="history-rate-box" class="hidden mb-4 bg-blue-50 border border-blue-100 rounded-xl p-4 text-center font-bold text-blue-700"></div>
+            <div id="history-empty" class="text-gray-400 text-center py-6 italic">ยังไม่มีข้อมูล</div>
+            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 hidden" id="history-container">
+                <table class="min-w-full bg-white text-left text-gray-700 text-sm">
+                    <thead class="bg-blue-50 border-b border-blue-100 text-blue-800 font-semibold">
+                        <tr>
+                            <th class="py-2 px-3">วันที่</th>
+                            <th class="py-2 px-3">เวลา</th>
+                            <th class="py-2 px-3 text-center">สถานะ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody" class="divide-y divide-gray-100"></tbody>
                 </table>
             </div>
         </div>
@@ -331,6 +401,37 @@
                 </div>
                 <button onclick="submitLeaveRequest()" class="w-full py-3 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition">📨 ส่งคำขอลา</button>
                 <p id="leave-msg" class="text-center font-bold"></p>
+            </div>
+        </div>
+
+        <!-- 6b. หน้าจัดการคำขอลา (อนุมัติ/ปฏิเสธ) -->
+        <div id="leaveapprove-section" class="bg-white rounded-2xl shadow-lg p-6 max-w-4xl mx-auto w-full hidden">
+            <h2 class="text-2xl font-bold text-gray-800 mb-6 border-b pb-3 text-center">🗓️ จัดการคำขอลา</h2>
+
+            <div class="flex justify-center items-center flex-wrap gap-3 mb-6">
+                <button class="filter-chip active" data-lstatus="" onclick="setLeaveStatusFilter('', this)">ทั้งหมด</button>
+                <button class="filter-chip" data-lstatus="อนุมัติอัตโนมัติ" onclick="setLeaveStatusFilter('อนุมัติอัตโนมัติ', this)">รอพิจารณา (อนุมัติอัตโนมัติ)</button>
+                <button class="filter-chip" data-lstatus="อนุมัติ" onclick="setLeaveStatusFilter('อนุมัติ', this)">อนุมัติแล้ว</button>
+                <button class="filter-chip" data-lstatus="ไม่อนุมัติ" onclick="setLeaveStatusFilter('ไม่อนุมัติ', this)">ไม่อนุมัติ</button>
+                <button onclick="fetchLeaveRequests()" class="px-5 py-2 bg-amber-600 text-white text-sm font-bold rounded-lg shadow hover:bg-amber-700 transition">🔄 รีเฟรช</button>
+            </div>
+
+            <div id="leaverequests-empty" class="text-gray-400 text-center py-6 italic">กำลังโหลดข้อมูลคำขอลา...</div>
+            <div class="overflow-x-auto rounded-lg shadow-sm border border-gray-100 hidden" id="leaverequests-container">
+                <table class="min-w-full bg-white text-left text-gray-700 text-sm">
+                    <thead class="bg-amber-50 border-b border-amber-100 text-amber-800 font-semibold">
+                        <tr>
+                            <th class="py-2 px-3">วันที่ยื่น</th>
+                            <th class="py-2 px-3">รหัส</th>
+                            <th class="py-2 px-3">ชื่อ-นามสกุล</th>
+                            <th class="py-2 px-3">วันที่ลา</th>
+                            <th class="py-2 px-3">เหตุผล</th>
+                            <th class="py-2 px-3 text-center">สถานะ</th>
+                            <th class="py-2 px-3 text-center">การจัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody id="leaverequests-tbody" class="divide-y divide-gray-100"></tbody>
+                </table>
             </div>
         </div>
 
@@ -367,8 +468,43 @@
                 <input type="text" id="manage-search" oninput="renderManageList()" placeholder="🔎 ค้นหาชื่อ/รหัส..." class="w-full p-2 border rounded-lg mb-3 text-sm">
                 <div class="max-h-96 overflow-y-auto custom-scrollbar space-y-2" id="manage-student-list"></div>
             </div>
+
+            <div class="bg-gray-50 rounded-xl p-5 border border-gray-100 mt-8 text-left">
+                <h3 class="font-bold text-lg text-slate-700 mb-3">⚙️ เครื่องมือระบบ (สำรอง/จัดเก็บข้อมูล)</h3>
+                <div class="flex flex-wrap gap-3">
+                    <button onclick="runBackupToDrive()" class="px-5 py-2 bg-slate-600 text-white text-sm font-bold rounded-lg shadow hover:bg-slate-700 transition">☁️ สำรองข้อมูลเช็คชื่อไป Drive (CSV)</button>
+                    <div class="flex items-center gap-2">
+                        <label class="text-sm text-gray-600">เก็บข้อมูลเก่ากว่า (เดือน):</label>
+                        <input type="number" id="archive-months" value="6" class="w-16 p-2 border rounded-lg text-center">
+                        <button onclick="runArchiveOldAttendance()" class="px-5 py-2 bg-slate-600 text-white text-sm font-bold rounded-lg shadow hover:bg-slate-700 transition">🗄️ เก็บข้อมูลเก่าเข้า Archive</button>
+                    </div>
+                </div>
+                <p id="system-tools-msg" class="mt-3 font-bold"></p>
+            </div>
         </div>
 
+    </div>
+
+    <!-- Modal สำหรับแก้ไขข้อมูลนักเรียน -->
+    <div id="edit-student-modal" class="hidden fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md">
+            <h3 class="text-xl font-bold text-gray-800 mb-4 border-b pb-2">✏️ แก้ไขข้อมูลนักเรียน</h3>
+            <input type="hidden" id="edit-student-id">
+            <div class="space-y-3 text-left">
+                <input id="edit-no" placeholder="เลขที่" class="w-full p-2 border rounded-lg">
+                <input id="edit-prefix" placeholder="คำนำหน้า" class="w-full p-2 border rounded-lg">
+                <input id="edit-firstname" placeholder="ชื่อ" class="w-full p-2 border rounded-lg">
+                <input id="edit-lastname" placeholder="นามสกุล" class="w-full p-2 border rounded-lg">
+                <input id="edit-class" placeholder="ชั้น" class="w-full p-2 border rounded-lg">
+                <input id="edit-subject" placeholder="รายวิชาที่เรียน" class="w-full p-2 border rounded-lg">
+                <input id="edit-lineid" placeholder="LINE User ID ผู้ปกครอง" class="w-full p-2 border rounded-lg">
+            </div>
+            <p id="edit-student-msg" class="mt-2 font-bold text-sm"></p>
+            <div class="flex gap-3 mt-4">
+                <button onclick="saveStudentEdit()" class="flex-1 py-2 bg-teal-600 text-white font-bold rounded-lg hover:bg-teal-700 transition">บันทึก</button>
+                <button onclick="closeEditStudentModal()" class="flex-1 py-2 bg-gray-200 text-gray-700 font-bold rounded-lg hover:bg-gray-300 transition">ยกเลิก</button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -403,6 +539,9 @@
         let summaryRawData = [];
         let currentStatusFilter = 'all';
         let summaryCurrentDate = '';
+
+        // ---------- 🙋 สถานะสำหรับหน้าจัดการคำขอลา ----------
+        let currentLeaveStatusFilter = '';
 
         const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
 
@@ -472,6 +611,7 @@
                 studentsList = res.data;
                 updateDropdown();
                 updateDashboard();
+                updateClassFilterDropdowns();
                 globalStatus.innerText = "ระบบพร้อมใช้งาน!";
                 setTimeout(() => { globalStatus.classList.add('hidden'); }, 2000);
                 
@@ -492,6 +632,8 @@
                 updateDashboard();
                 updateManualCheckinDropdown();
                 updateLeaveStudentDropdown();
+                updateClassFilterDropdowns();
+                updateHistoryStudentDropdown();
             }
             return res;
         }
@@ -511,6 +653,29 @@
             studentsList.forEach(st => {
                 const hasFace = st.descriptor ? '✅ ' : '❌ ';
                 studentSelect.innerHTML += `<option value="${st.id}">${hasFace} ${st.name}</option>`;
+            });
+        }
+
+        // ---------- อัปเดต dropdown ตัวกรองชั้นเรียน (ใช้ในหน้าสรุปรายวัน/รายงาน) ----------
+        function updateClassFilterDropdowns() {
+            const classes = Array.from(new Set(studentsList.map(s => s.className).filter(c => c))).sort();
+            const summarySel = document.getElementById('summary-class-filter');
+            const reportSel = document.getElementById('report-class-filter');
+            [summarySel, reportSel].forEach(sel => {
+                if (!sel) return;
+                const currentVal = sel.value;
+                sel.innerHTML = '<option value="">ทุกชั้นเรียน</option>' + classes.map(c => `<option value="${c}">${c}</option>`).join('');
+                sel.value = currentVal || '';
+            });
+            updateHistoryStudentDropdown();
+        }
+
+        function updateHistoryStudentDropdown() {
+            const sel = document.getElementById('history-student-select');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">-- เลือกนักเรียน --</option>';
+            studentsList.forEach(s => {
+                sel.innerHTML += `<option value="${s.id}">${s.id} - ${s.name}</option>`;
             });
         }
 
@@ -552,6 +717,7 @@
             document.getElementById('howto-section').classList.add('hidden');
             document.getElementById('reports-section').classList.add('hidden');
             document.getElementById('leave-section').classList.add('hidden');
+            document.getElementById('leaveapprove-section').classList.add('hidden');
             document.getElementById('manage-section').classList.add('hidden');
             
             document.getElementById('register-ui').classList.add('hidden');
@@ -559,7 +725,7 @@
             document.getElementById('attendance-list-section').classList.add('hidden');
             document.getElementById('attendance-list-section').classList.remove('flex');
             
-            ['home', 'register', 'checkin', 'summary', 'reports', 'leave', 'manage', 'howto'].forEach(t => {
+            ['home', 'register', 'checkin', 'summary', 'reports', 'leave', 'leaveapprove', 'manage', 'howto'].forEach(t => {
                 const btn = document.getElementById(`btn-tab-${t}`);
                 if (!btn) return;
                 btn.className = "px-5 py-2 font-bold rounded-full shadow-md transition bg-gray-300 text-gray-700 hover:text-white";
@@ -569,6 +735,7 @@
                 if(t==='summary') btn.classList.add('hover:bg-purple-600');
                 if(t==='reports') btn.classList.add('hover:bg-pink-600');
                 if(t==='leave') btn.classList.add('hover:bg-yellow-500');
+                if(t==='leaveapprove') btn.classList.add('hover:bg-amber-600');
                 if(t==='manage') btn.classList.add('hover:bg-teal-600');
                 if(t==='howto') btn.classList.add('hover:bg-orange-500');
             });
@@ -610,6 +777,7 @@
                 const btn = document.getElementById('btn-tab-summary');
                 btn.classList.replace('bg-gray-300', 'bg-purple-600');
                 btn.classList.replace('text-gray-700', 'text-white');
+                document.getElementById('latecomers-panel').classList.add('hidden');
                 fetchSummaryData();
             } else if (mode === 'reports') {
                 document.getElementById('reports-section').classList.remove('hidden');
@@ -617,12 +785,19 @@
                 btn.classList.replace('bg-gray-300', 'bg-pink-600');
                 btn.classList.replace('text-gray-700', 'text-white');
                 initReportSelectors();
+                updateHistoryStudentDropdown();
             } else if (mode === 'leave') {
                 document.getElementById('leave-section').classList.remove('hidden');
                 const btn = document.getElementById('btn-tab-leave');
                 btn.classList.replace('bg-gray-300', 'bg-yellow-500');
                 btn.classList.replace('text-gray-700', 'text-white');
                 updateLeaveStudentDropdown();
+            } else if (mode === 'leaveapprove') {
+                document.getElementById('leaveapprove-section').classList.remove('hidden');
+                const btn = document.getElementById('btn-tab-leaveapprove');
+                btn.classList.replace('bg-gray-300', 'bg-amber-600');
+                btn.classList.replace('text-gray-700', 'text-white');
+                fetchLeaveRequests();
             } else if (mode === 'manage') {
                 document.getElementById('manage-section').classList.remove('hidden');
                 const btn = document.getElementById('btn-tab-manage');
@@ -971,8 +1146,12 @@
             document.getElementById('summary-loading').classList.remove('hidden');
             document.getElementById('summary-table-container').classList.add('hidden');
             document.getElementById('summary-empty').classList.add('hidden');
+            document.getElementById('latecomers-panel').classList.add('hidden');
 
-            const res = await gasAPI('getDailySummary', { date: formattedDate });
+            const classFilter = document.getElementById('summary-class-filter').value;
+            const res = classFilter
+                ? await gasAPI('getClassSummary', { date: formattedDate, className: classFilter })
+                : await gasAPI('getDailySummary', { date: formattedDate });
             
             document.getElementById('summary-loading').classList.add('hidden');
             
@@ -1040,7 +1219,7 @@
 
         function setStatusFilter(status, btnEl) {
             currentStatusFilter = status;
-            document.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
+            document.querySelectorAll('#summary-section .filter-chip').forEach(chip => chip.classList.remove('active'));
             if (btnEl) btnEl.classList.add('active');
             applySummaryFilters();
         }
@@ -1086,6 +1265,35 @@
             window.print();
         }
 
+        // ---------- ⏰ รายงานมาสาย (getLateComersReport) ----------
+        async function fetchLateComersReport() {
+            if (!summaryCurrentDate) {
+                alert('กรุณาค้นหาข้อมูลวันที่ต้องการก่อน');
+                return;
+            }
+            const cutoffVal = document.getElementById('latecomers-cutoff').value || '08:30';
+            document.getElementById('latecomers-cutoff-label').innerText = cutoffVal;
+
+            const panel = document.getElementById('latecomers-panel');
+            const content = document.getElementById('latecomers-content');
+            panel.classList.remove('hidden');
+            content.innerHTML = '<p class="italic text-gray-400">กำลังโหลด...</p>';
+
+            const res = await gasAPI('getLateComersReport', { date: summaryCurrentDate, cutoffTime: cutoffVal });
+            if (res.success) {
+                const { onTime, late } = res.data;
+                let html = `<p class="mb-2"><strong>มาตรงเวลา:</strong> ${onTime.length} คน &nbsp; | &nbsp; <strong class="text-amber-700">มาสาย:</strong> ${late.length} คน</p>`;
+                if (late.length > 0) {
+                    html += '<ul class="list-disc pl-5 space-y-1">' + late.map(l => `<li>${l.studentId} - ${l.name} (เวลา ${l.time})</li>`).join('') + '</ul>';
+                } else {
+                    html += '<p class="italic text-gray-400">ไม่มีนักเรียนมาสายในวันนี้ 🎉</p>';
+                }
+                content.innerHTML = html;
+            } else {
+                content.innerHTML = '<p class="text-red-500">โหลดข้อมูลไม่สำเร็จ</p>';
+            }
+        }
+
         // 11. ฟังก์ชันเปลี่ยนสถานะ (มาเรียน/มาสาย/ขาด/ลา)
         async function changeStatus(date, id, name, newStatus) {
             // ค้นหา select element ที่เปลี่ยนค่า และเปลี่ยนสีตามสถานะใหม่
@@ -1124,7 +1332,7 @@
         }
 
         // ==========================================================
-        //  📈 หน้ารายงาน (สรุปรายเดือน / กลุ่มเสี่ยง)
+        //  📈 หน้ารายงาน (สรุปรายเดือน / กลุ่มเสี่ยง / แนวโน้ม / ประวัติ)
         // ==========================================================
 
         function initReportSelectors() {
@@ -1161,9 +1369,19 @@
             const res = await gasAPI('getMonthlySummary', { month: Number(month), year: Number(year) });
 
             if (res.success && res.data && res.data.length > 0) {
+                const classFilter = document.getElementById('report-class-filter').value;
+                const dataToShow = classFilter ? res.data.filter(s => s.className === classFilter) : res.data;
+
+                if (dataToShow.length === 0) {
+                    document.getElementById('monthly-summary-container').classList.add('hidden');
+                    emptyEl.classList.remove('hidden');
+                    emptyEl.innerText = 'ไม่พบข้อมูลในเดือน/ปี/ชั้นเรียนที่เลือก';
+                    return;
+                }
+
                 const tbody = document.getElementById('monthly-summary-tbody');
                 tbody.innerHTML = '';
-                res.data.forEach(s => {
+                dataToShow.forEach(s => {
                     tbody.innerHTML += `
                         <tr class="hover:bg-pink-50">
                             <td class="py-2 px-3 font-medium">${s.id}</td>
@@ -1173,6 +1391,7 @@
                             <td class="py-2 px-3 text-center text-yellow-700 font-bold">${s.มาสาย}</td>
                             <td class="py-2 px-3 text-center text-red-700 font-bold">${s.ขาดเรียน}</td>
                             <td class="py-2 px-3 text-center text-orange-700 font-bold">${s.ลา}</td>
+                            <td class="py-2 px-3 text-center"><button onclick="quickViewHistory('${s.id}')" class="text-blue-600 hover:underline text-xs font-bold">ดูประวัติ</button></td>
                         </tr>
                     `;
                 });
@@ -1198,6 +1417,35 @@
             }
         }
 
+        // ---------- 📉 แนวโน้มรายวัน (getAttendanceTrendChart) ----------
+        async function fetchAttendanceTrend() {
+            const month = document.getElementById('report-month').value;
+            const year = document.getElementById('report-year').value;
+            const classFilter = document.getElementById('report-class-filter').value;
+            if (!month || !year) return;
+
+            const res = await gasAPI('getAttendanceTrendChart', { className: classFilter, month: Number(month), year: Number(year) });
+            const container = document.getElementById('trend-container');
+            const tbody = document.getElementById('trend-tbody');
+
+            if (res.success && res.data && res.data.length > 0) {
+                tbody.innerHTML = res.data.map(d => `
+                    <tr class="hover:bg-indigo-50">
+                        <td class="py-2 px-3">${d.date}</td>
+                        <td class="py-2 px-3 text-center text-green-700 font-bold">${d.มาเรียน}</td>
+                        <td class="py-2 px-3 text-center text-yellow-700 font-bold">${d.มาสาย}</td>
+                        <td class="py-2 px-3 text-center text-red-700 font-bold">${d.ขาดเรียน}</td>
+                        <td class="py-2 px-3 text-center text-orange-700 font-bold">${d.ลา}</td>
+                    </tr>
+                `).join('');
+                container.classList.remove('hidden');
+            } else {
+                tbody.innerHTML = '';
+                container.classList.add('hidden');
+                alert('ไม่พบข้อมูลแนวโน้มในเดือน/ปี/ชั้นเรียนที่เลือก');
+            }
+        }
+
         async function fetchRiskStudents() {
             const threshold = Number(document.getElementById('risk-threshold').value) || 80;
 
@@ -1218,6 +1466,7 @@
                             <td class="py-2 px-3">${s.name}</td>
                             <td class="py-2 px-3">${s.className || '-'}</td>
                             <td class="py-2 px-3 text-center font-bold text-red-600">${s.rate}%</td>
+                            <td class="py-2 px-3 text-center"><button onclick="notifyRiskStudent('${s.id}')" class="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded hover:bg-orange-200 transition">🔔 แจ้งผู้ปกครอง</button></td>
                         </tr>
                     `;
                 });
@@ -1227,6 +1476,73 @@
                 document.getElementById('risk-list-container').classList.add('hidden');
                 emptyEl.classList.remove('hidden');
                 emptyEl.innerText = 'ไม่พบนักเรียนกลุ่มเสี่ยงตามเกณฑ์ที่กำหนด';
+            }
+        }
+
+        // ---------- notifyConsecutiveAbsence ----------
+        async function notifyRiskStudent(studentId) {
+            const days = prompt('แจ้งเตือนผู้ปกครองเมื่อขาดติดต่อกันกี่วัน?', '3');
+            if (days === null) return;
+            const res = await gasAPI('notifyConsecutiveAbsence', { studentId: studentId, days: Number(days) || 3 });
+            if (res.success) {
+                if (res.notified) {
+                    alert(`✅ แจ้งเตือนผู้ปกครองแล้ว (ขาดติดต่อกัน ${res.consecutiveDays} วัน)`);
+                } else {
+                    alert(`ยังไม่ถึงเกณฑ์แจ้งเตือน (ขาดติดต่อกันเพียง ${res.consecutiveDays} วัน)`);
+                }
+            } else {
+                alert('เกิดข้อผิดพลาด: ' + (res.error || ''));
+            }
+        }
+
+        // ---------- 🔍 ประวัติ/อัตรามาเรียนรายบุคคล (getStudentAttendanceHistory + getAttendanceRate) ----------
+        function quickViewHistory(studentId) {
+            document.getElementById('history-student-select').value = studentId;
+            fetchStudentHistory();
+            document.getElementById('history-student-select').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        async function fetchStudentHistory() {
+            const studentId = document.getElementById('history-student-select').value;
+            if (!studentId) return alert('กรุณาเลือกนักเรียน');
+
+            const startVal = document.getElementById('history-start-date').value;
+            const endVal = document.getElementById('history-end-date').value;
+            const toThaiDate = (v) => { if (!v) return ''; const [y,m,d] = v.split('-'); return `${d}/${m}/${y}`; };
+
+            const emptyEl = document.getElementById('history-empty');
+            const container = document.getElementById('history-container');
+            const rateBox = document.getElementById('history-rate-box');
+            emptyEl.classList.remove('hidden');
+            emptyEl.innerText = 'กำลังโหลด...';
+            container.classList.add('hidden');
+            rateBox.classList.add('hidden');
+
+            const [historyRes, rateRes] = await Promise.all([
+                gasAPI('getStudentAttendanceHistory', { studentId: studentId, startDate: toThaiDate(startVal), endDate: toThaiDate(endVal) }),
+                gasAPI('getAttendanceRate', { studentId: studentId })
+            ]);
+
+            if (rateRes.success) {
+                const r = rateRes.data;
+                rateBox.innerText = `อัตรามาเรียน: ${r.rate}% (มาเรียน ${r.presentDays} + มาสาย ${r.lateDays} จากทั้งหมด ${r.totalDays} วันที่มีการเช็คชื่อ, ลา ${r.leaveDays} วัน)`;
+                rateBox.classList.remove('hidden');
+            }
+
+            if (historyRes.success && historyRes.data && historyRes.data.length > 0) {
+                const tbody = document.getElementById('history-tbody');
+                tbody.innerHTML = historyRes.data.map(h => `
+                    <tr class="hover:bg-blue-50">
+                        <td class="py-2 px-3">${h.date}</td>
+                        <td class="py-2 px-3">${h.time}</td>
+                        <td class="py-2 px-3 text-center"><span class="px-2 py-1 rounded-lg text-xs font-bold status-${h.status}">${h.status}</span></td>
+                    </tr>
+                `).join('');
+                emptyEl.classList.add('hidden');
+                container.classList.remove('hidden');
+            } else {
+                emptyEl.classList.remove('hidden');
+                emptyEl.innerText = 'ไม่พบประวัติการเช็คชื่อในช่วงที่ระบุ';
             }
         }
 
@@ -1281,6 +1597,71 @@
         }
 
         // ==========================================================
+        //  🗓️ หน้าจัดการคำขอลา (อนุมัติ/ปฏิเสธ)
+        // ==========================================================
+
+        function setLeaveStatusFilter(status, btnEl) {
+            currentLeaveStatusFilter = status;
+            document.querySelectorAll('#leaveapprove-section .filter-chip').forEach(chip => chip.classList.remove('active'));
+            if (btnEl) btnEl.classList.add('active');
+            fetchLeaveRequests();
+        }
+
+        async function fetchLeaveRequests() {
+            const emptyEl = document.getElementById('leaverequests-empty');
+            const container = document.getElementById('leaverequests-container');
+            emptyEl.classList.remove('hidden');
+            emptyEl.innerText = 'กำลังโหลดข้อมูลคำขอลา...';
+            container.classList.add('hidden');
+
+            const res = await gasAPI('getLeaveRequests', { status: currentLeaveStatusFilter || undefined });
+
+            if (res.success && res.data && res.data.length > 0) {
+                const tbody = document.getElementById('leaverequests-tbody');
+                tbody.innerHTML = res.data.map(r => {
+                    const statusClass = r.status === 'อนุมัติ' ? 'status-มาเรียน' : (r.status === 'ไม่อนุมัติ' ? 'status-ขาดเรียน' : 'status-ลา');
+                    return `
+                    <tr class="hover:bg-amber-50">
+                        <td class="py-2 px-3">${r.submittedDate}</td>
+                        <td class="py-2 px-3 font-medium">${r.studentId}</td>
+                        <td class="py-2 px-3">${r.studentName}</td>
+                        <td class="py-2 px-3">${r.leaveDate}</td>
+                        <td class="py-2 px-3">${r.reason || '-'}</td>
+                        <td class="py-2 px-3 text-center"><span class="px-2 py-1 rounded-lg text-xs font-bold border ${statusClass}">${r.status}</span></td>
+                        <td class="py-2 px-3 text-center whitespace-nowrap">
+                            <button onclick="decideLeaveRequest(${r.rowIndex}, '${r.studentId}', '${r.leaveDate}', 'อนุมัติ')" class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded hover:bg-green-200 transition mr-1">✅ อนุมัติ</button>
+                            <button onclick="decideLeaveRequest(${r.rowIndex}, '${r.studentId}', '${r.leaveDate}', 'ไม่อนุมัติ')" class="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded hover:bg-red-200 transition">❌ ไม่อนุมัติ</button>
+                        </td>
+                    </tr>
+                    `;
+                }).join('');
+                emptyEl.classList.add('hidden');
+                container.classList.remove('hidden');
+            } else {
+                container.classList.add('hidden');
+                emptyEl.classList.remove('hidden');
+                emptyEl.innerText = 'ไม่พบคำขอลาตามเงื่อนไขที่เลือก';
+            }
+        }
+
+        async function decideLeaveRequest(rowIndex, studentId, leaveDate, newStatus) {
+            if (!confirm(`ยืนยันการ "${newStatus}" คำขอลาของรหัสนักเรียน ${studentId} วันที่ ${leaveDate}?`)) return;
+
+            const res = await gasAPI('updateLeaveRequestStatus', {
+                rowIndex: rowIndex,
+                studentId: studentId,
+                leaveDate: leaveDate,
+                newStatus: newStatus
+            });
+
+            if (res.success) {
+                fetchLeaveRequests();
+            } else {
+                alert('เกิดข้อผิดพลาด: ' + (res.error || ''));
+            }
+        }
+
+        // ==========================================================
         //  🗂️ หน้าจัดการนักเรียน
         // ==========================================================
 
@@ -1303,7 +1684,10 @@
                         <p class="font-bold text-gray-800">${s.id} - ${s.name}</p>
                         <p class="text-xs text-gray-500">${s.className || '-'} · ${s.descriptor ? '✅ ลงทะเบียนใบหน้าแล้ว' : '❌ ยังไม่ลงทะเบียนใบหน้า'}</p>
                     </div>
-                    ${s.descriptor ? `<button onclick="deleteStudentFaceUI('${s.id}')" class="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition shrink-0">ลบใบหน้า</button>` : ''}
+                    <div class="flex gap-2 shrink-0">
+                        <button onclick="openEditStudentModal('${s.id}')" class="px-3 py-1 bg-blue-100 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-200 transition">✏️ แก้ไข</button>
+                        ${s.descriptor ? `<button onclick="deleteStudentFaceUI('${s.id}')" class="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition">ลบใบหน้า</button>` : ''}
+                    </div>
                 </div>
             `).join('');
         }
@@ -1385,6 +1769,103 @@
             } else {
                 msgEl.innerText = '❌ นำเข้าไม่สำเร็จ: ' + (res.error || '');
                 msgEl.className = 'mt-2 font-bold text-red-600';
+            }
+        }
+
+        // ---------- ✏️ แก้ไขข้อมูลนักเรียน (updateStudentInfo) ----------
+        function openEditStudentModal(studentId) {
+            const student = studentsList.find(s => s.id === studentId);
+            if (!student) return;
+
+            document.getElementById('edit-student-id').value = studentId;
+            // studentsList เก็บเฉพาะ id/name/className/descriptor จึงต้องแยกชื่อ-นามสกุลแบบคร่าวๆ จาก name
+            document.getElementById('edit-no').value = '';
+            document.getElementById('edit-prefix').value = '';
+            document.getElementById('edit-firstname').value = student.name || '';
+            document.getElementById('edit-lastname').value = '';
+            document.getElementById('edit-class').value = student.className || '';
+            document.getElementById('edit-subject').value = '';
+            document.getElementById('edit-lineid').value = '';
+            document.getElementById('edit-student-msg').innerText = '';
+
+            document.getElementById('edit-student-modal').classList.remove('hidden');
+        }
+
+        function closeEditStudentModal() {
+            document.getElementById('edit-student-modal').classList.add('hidden');
+        }
+
+        async function saveStudentEdit() {
+            const studentId = document.getElementById('edit-student-id').value;
+            const msgEl = document.getElementById('edit-student-msg');
+
+            const fields = {};
+            const no = document.getElementById('edit-no').value.trim();
+            const prefix = document.getElementById('edit-prefix').value.trim();
+            const firstName = document.getElementById('edit-firstname').value.trim();
+            const lastName = document.getElementById('edit-lastname').value.trim();
+            const className = document.getElementById('edit-class').value.trim();
+            const subject = document.getElementById('edit-subject').value.trim();
+            const parentLineId = document.getElementById('edit-lineid').value.trim();
+
+            if (no) fields.no = no;
+            if (prefix) fields.prefix = prefix;
+            if (firstName) fields.firstName = firstName;
+            if (lastName) fields.lastName = lastName;
+            if (className) fields.className = className;
+            if (subject) fields.subject = subject;
+            if (parentLineId) fields.parentLineId = parentLineId;
+
+            msgEl.innerText = 'กำลังบันทึก...';
+            msgEl.className = 'mt-2 font-bold text-sm text-yellow-600 animate-pulse';
+
+            const res = await gasAPI('updateStudentInfo', { studentId: studentId, fields: fields });
+
+            if (res.success) {
+                msgEl.innerText = '✅ บันทึกสำเร็จ';
+                msgEl.className = 'mt-2 font-bold text-sm text-green-600';
+                await refreshStudentsList();
+                renderManageList();
+                setTimeout(closeEditStudentModal, 600);
+            } else {
+                msgEl.innerText = '❌ บันทึกไม่สำเร็จ: ' + (res.error || '');
+                msgEl.className = 'mt-2 font-bold text-sm text-red-600';
+            }
+        }
+
+        // ---------- ⚙️ เครื่องมือระบบ: สำรอง/จัดเก็บ ----------
+        async function runBackupToDrive() {
+            const msgEl = document.getElementById('system-tools-msg');
+            msgEl.innerText = 'กำลังสำรองข้อมูลไป Google Drive...';
+            msgEl.className = 'mt-3 font-bold text-yellow-600 animate-pulse';
+
+            const res = await gasAPI('dailyBackupToDrive');
+            if (res.success) {
+                msgEl.innerHTML = `✅ สำรองข้อมูลสำเร็จ: <a href="${res.fileUrl}" target="_blank" class="text-blue-600 underline">${res.fileName}</a>`;
+                msgEl.className = 'mt-3 font-bold text-green-600';
+            } else {
+                msgEl.innerText = '❌ สำรองข้อมูลไม่สำเร็จ: ' + (res.error || '');
+                msgEl.className = 'mt-3 font-bold text-red-600';
+            }
+        }
+
+        async function runArchiveOldAttendance() {
+            const months = Number(document.getElementById('archive-months').value) || 6;
+            if (!confirm(`ต้องการย้ายข้อมูลเช็คชื่อที่เก่ากว่า ${months} เดือนไปเก็บใน Archive ใช่หรือไม่?`)) return;
+
+            const msgEl = document.getElementById('system-tools-msg');
+            msgEl.innerText = 'กำลังจัดเก็บข้อมูลเก่า...';
+            msgEl.className = 'mt-3 font-bold text-yellow-600 animate-pulse';
+
+            const res = await gasAPI('autoArchiveOldAttendance', { monthsOld: months });
+            if (res.success) {
+                msgEl.innerText = res.archivedCount > 0
+                    ? `✅ ย้ายข้อมูลเก่า ${res.archivedCount} แถวไปที่ชีต "${res.archiveSheet}" แล้ว`
+                    : '✅ ไม่มีข้อมูลเก่าที่ต้องจัดเก็บ';
+                msgEl.className = 'mt-3 font-bold text-green-600';
+            } else {
+                msgEl.innerText = '❌ จัดเก็บไม่สำเร็จ: ' + (res.error || '');
+                msgEl.className = 'mt-3 font-bold text-red-600';
             }
         }
     </script>
