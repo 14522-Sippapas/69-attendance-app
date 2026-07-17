@@ -398,6 +398,11 @@
         let currentStream = null;
         let currentFacingMode = 'user'; // 'user' = กล้องหน้า, 'environment' = กล้องหลัง
 
+        // ---------- 📊 สถานะสำหรับตารางสรุปรายวัน (ค้นหา/กรอง) ----------
+        let summaryRawData = [];
+        let currentStatusFilter = 'all';
+        let summaryCurrentDate = '';
+
         const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
 
         summaryDateInput.valueAsDate = new Date();
@@ -476,6 +481,20 @@
             }
         }
 
+        // ---------- refreshStudentsList() ----------
+        // เหมือน fetchStudents() แต่ไม่สลับแท็บกลับหน้าแรก ใช้รีเฟรชข้อมูลระหว่างอยู่หน้าจัดการ/แจ้งลา/เช็คชื่อ
+        async function refreshStudentsList() {
+            const res = await gasAPI('getStudents');
+            if (res && res.success) {
+                studentsList = res.data;
+                updateDropdown();
+                updateDashboard();
+                updateManualCheckinDropdown();
+                updateLeaveStudentDropdown();
+            }
+            return res;
+        }
+
         function updateDashboard() {
             const total = studentsList.length;
             const registered = studentsList.filter(s => s.descriptor).length;
@@ -492,6 +511,32 @@
                 const hasFace = st.descriptor ? '✅ ' : '❌ ';
                 studentSelect.innerHTML += `<option value="${st.id}">${hasFace} ${st.name}</option>`;
             });
+        }
+
+        // ---------- ⚠️ แผงรายชื่อยังไม่ลงทะเบียนใบหน้า (คลิกจากการ์ดหน้าแรก) ----------
+        function toggleUnregisteredPanel() {
+            const panel = document.getElementById('unregistered-panel');
+            if (panel.classList.contains('hidden')) {
+                renderUnregisteredList();
+                panel.classList.remove('hidden');
+            } else {
+                panel.classList.add('hidden');
+            }
+        }
+
+        async function renderUnregisteredList() {
+            const ul = document.getElementById('unregistered-ul');
+            ul.innerHTML = '<li class="text-gray-400 italic">กำลังโหลด...</li>';
+            const res = await gasAPI('getUnregisteredList');
+            if (res && res.success) {
+                if (res.data.length === 0) {
+                    ul.innerHTML = '<li class="text-gray-400 italic">ลงทะเบียนครบทุกคนแล้ว 🎉</li>';
+                } else {
+                    ul.innerHTML = res.data.map(s => `<li>${s.id} - ${s.name} (${s.className || '-'})</li>`).join('');
+                }
+            } else {
+                ul.innerHTML = '<li class="text-red-500">โหลดข้อมูลไม่สำเร็จ</li>';
+            }
         }
 
         async function switchTab(mode) {
@@ -663,6 +708,20 @@
             const descriptorArray = Array.from(detection.descriptor);
             const descriptorStr = JSON.stringify(descriptorArray);
 
+            // ---------- ตรวจสอบใบหน้าซ้ำก่อนบันทึก (กันสวมรอย) ----------
+            regMsg.innerText = "กำลังตรวจสอบใบหน้าซ้ำ...";
+            regMsg.className = "mt-4 font-bold text-indigo-600 animate-pulse";
+
+            const dupCheck = await gasAPI('checkDuplicateFaceDescriptor', { descriptor: descriptorStr, excludeStudentId: studentId });
+            if (dupCheck && dupCheck.success && dupCheck.isDuplicate) {
+                const confirmMsg = `⚠️ ใบหน้านี้มีความคล้ายกับรหัสนักเรียน ${dupCheck.matchedStudentId} (${dupCheck.matchedStudentName}) ที่ลงทะเบียนไว้แล้ว\n\nต้องการลงทะเบียนต่อหรือไม่?`;
+                if (!confirm(confirmMsg)) {
+                    regMsg.innerText = "❌ ยกเลิกการลงทะเบียน (ตรวจพบใบหน้าซ้ำ)";
+                    regMsg.className = "mt-4 font-bold text-red-600";
+                    return;
+                }
+            }
+
             regMsg.innerText = "กำลังบันทึกข้อมูลลงฐานข้อมูล...";
             
             const res = await gasAPI('registerFace', { studentId: studentId, descriptor: descriptorStr });
@@ -833,13 +892,80 @@
             }
         }
 
-        // 10. ดึงข้อมูลสรุปรายวัน (อัปเดตใหม่)
+        // ---------- ✋ เช็คชื่อด้วยมือ (fallback เผื่อกล้องจำหน้าไม่ได้) ----------
+        function updateManualCheckinDropdown() {
+            const sel = document.getElementById('manual-checkin-select');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">-- เลือกนักเรียน --</option>';
+            studentsList.forEach(s => {
+                sel.innerHTML += `<option value="${s.id}">${s.id} - ${s.name}</option>`;
+            });
+        }
+
+        async function manualCheckIn() {
+            const sel = document.getElementById('manual-checkin-select');
+            const studentId = sel.value;
+            if (!studentId) return alert('กรุณาเลือกนักเรียน');
+
+            const student = studentsList.find(s => s.id === studentId);
+            const name = student ? student.name : '';
+
+            resultBox.innerHTML = `<p class="text-blue-600 font-bold text-lg animate-pulse">⏳ กำลังบันทึกข้อมูล...</p>`;
+
+            const res = await gasAPI('manualCheckInFallback', { studentId: studentId, studentName: name });
+
+            if (res.success) {
+                checkedInStudents.add(studentId);
+                const studentInfo = student || { name: res.name, className: 'ไม่ระบุชั้น' };
+
+                resultBox.innerHTML = `
+                    <div class="w-full text-left bg-white p-4 rounded-xl border-l-4 border-gray-500 shadow-sm">
+                        <p class="text-gray-600 font-bold text-xl mb-3">✋ เช็คชื่อด้วยมือสำเร็จ!</p>
+                        <div class="grid grid-cols-3 gap-2 text-sm md:text-base">
+                            <div class="col-span-1 text-gray-500 font-medium">รหัสนักเรียน:</div>
+                            <div class="col-span-2 text-gray-800 font-bold">${studentId}</div>
+                            <div class="col-span-1 text-gray-500 font-medium">ชื่อ-สกุล:</div>
+                            <div class="col-span-2 text-gray-800 font-bold">${studentInfo.name}</div>
+                            <div class="col-span-1 text-gray-500 font-medium">ชั้นเรียน:</div>
+                            <div class="col-span-2 text-gray-800 font-bold">${studentInfo.className || '-'}</div>
+                        </div>
+                        <div class="mt-3 pt-3 border-t border-gray-100 text-sm text-gray-400">
+                            ⏰ เวลาที่บันทึก: <span class="text-gray-600 font-semibold">${res.time}</span>
+                        </div>
+                    </div>
+                `;
+
+                if (emptyListMsg) emptyListMsg.style.display = 'none';
+
+                const listItem = document.createElement('li');
+                listItem.className = "flex justify-between items-center p-3 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors duration-200";
+                listItem.innerHTML = `
+                    <div class="flex items-center space-x-3 w-3/4">
+                        <div class="bg-gray-200 p-2 rounded-full shrink-0">✋</div>
+                        <div class="flex flex-col truncate">
+                            <span class="font-bold text-gray-800 text-sm">${studentId}</span>
+                            <span class="font-medium text-gray-600 text-xs truncate">${studentInfo.name}</span>
+                        </div>
+                    </div>
+                    <span class="text-xs font-semibold text-gray-500 bg-white px-2 py-1 border rounded-md shadow-sm shrink-0">${res.time}</span>
+                `;
+                attendanceList.prepend(listItem);
+                attendanceCount++;
+                attendanceCountEl.innerText = `${attendanceCount} คน`;
+                sel.value = '';
+            } else {
+                resultBox.innerHTML = `<p class="text-red-600 font-bold text-xl">❌ บันทึกไม่สำเร็จ: ${res.error || ''}</p>`;
+            }
+        }
+
+        // 10. ดึงข้อมูลสรุปรายวัน
         async function fetchSummaryData() {
             const dateStr = summaryDateInput.value;
             if(!dateStr) return;
 
             const [year, month, day] = dateStr.split('-');
             const formattedDate = `${day}/${month}/${year}`;
+            summaryCurrentDate = formattedDate;
 
             document.getElementById('summary-loading').classList.remove('hidden');
             document.getElementById('summary-table-container').classList.add('hidden');
@@ -850,37 +976,116 @@
             document.getElementById('summary-loading').classList.add('hidden');
             
             if (res.success && res.data && res.data.length > 0) {
-                const tbody = document.getElementById('summary-tbody');
-                tbody.innerHTML = '';
-                res.data.forEach(row => {
-                    // row: [date, time, id, name, status]
-                    const status = row[4] || 'ขาดเรียน';
-                    
-                    tbody.innerHTML += `
-                        <tr class="hover:bg-purple-50 transition-colors">
-                            <td class="py-3 px-4 font-medium text-gray-700">${row[2]}</td>
-                            <td class="py-3 px-4 text-gray-800">${row[3]}</td>
-                            <td class="py-3 px-4 text-gray-500 text-sm">${row[1]}</td>
-                            <td class="py-3 px-4 text-center">
-                                <select 
-                                    onchange="changeStatus('${formattedDate}', '${row[2]}', '${row[3]}', this.value)"
-                                    class="border-2 rounded-lg px-2 py-1 text-sm font-bold focus:outline-none cursor-pointer status-${status}"
-                                >
-                                    <option value="มาเรียน" ${status === 'มาเรียน' ? 'selected' : ''}>มาเรียน</option>
-                                    <option value="ขาดเรียน" ${status === 'ขาดเรียน' ? 'selected' : ''}>ขาดเรียน</option>
-                                    <option value="ลา" ${status === 'ลา' ? 'selected' : ''}>ลา</option>
-                                </select>
-                            </td>
-                        </tr>
-                    `;
-                });
+                summaryRawData = res.data;
+                applySummaryFilters();
                 document.getElementById('summary-table-container').classList.remove('hidden');
             } else {
+                summaryRawData = [];
                 document.getElementById('summary-empty').classList.remove('hidden');
             }
         }
 
-        // 11. ฟังก์ชันเปลี่ยนสถานะ (ขาด/ลา/มาเรียน)
+        // ---------- renderSummaryTable(data) ----------
+        // วาดตารางสรุปรายวันจากข้อมูลที่กรองแล้ว (ใช้ทั้งตอนโหลดครั้งแรกและตอนกรอง/ค้นหา)
+        function renderSummaryTable(data) {
+            const tbody = document.getElementById('summary-tbody');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-6 text-gray-400 italic">ไม่พบข้อมูลตามเงื่อนไขที่ค้นหา</td></tr>';
+                return;
+            }
+
+            data.forEach(row => {
+                // row: [date, time, id, name, status]
+                const status = row[4] || 'ขาดเรียน';
+                
+                tbody.innerHTML += `
+                    <tr class="hover:bg-purple-50 transition-colors">
+                        <td class="py-3 px-4 font-medium text-gray-700">${row[2]}</td>
+                        <td class="py-3 px-4 text-gray-800">${row[3]}</td>
+                        <td class="py-3 px-4 text-gray-500 text-sm">${row[1]}</td>
+                        <td class="py-3 px-4 text-center">
+                            <select 
+                                onchange="changeStatus('${summaryCurrentDate}', '${row[2]}', '${row[3]}', this.value)"
+                                class="border-2 rounded-lg px-2 py-1 text-sm font-bold focus:outline-none cursor-pointer status-${status}"
+                            >
+                                <option value="มาเรียน" ${status === 'มาเรียน' ? 'selected' : ''}>มาเรียน</option>
+                                <option value="มาสาย" ${status === 'มาสาย' ? 'selected' : ''}>มาสาย</option>
+                                <option value="ขาดเรียน" ${status === 'ขาดเรียน' ? 'selected' : ''}>ขาดเรียน</option>
+                                <option value="ลา" ${status === 'ลา' ? 'selected' : ''}>ลา</option>
+                            </select>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // ---------- applySummaryFilters() ----------
+        // กรองข้อมูลตามช่องค้นหา + สถานะ (filter chip) แล้ววาดตารางใหม่
+        function applySummaryFilters() {
+            if (!summaryRawData || summaryRawData.length === 0) return;
+
+            const term = document.getElementById('summary-search').value.trim().toLowerCase();
+            const filtered = summaryRawData.filter(row => {
+                const status = row[4] || 'ขาดเรียน';
+                const matchesStatus = currentStatusFilter === 'all' || status === currentStatusFilter;
+                const matchesSearch = !term || String(row[2]).toLowerCase().includes(term) || String(row[3]).toLowerCase().includes(term);
+                return matchesStatus && matchesSearch;
+            });
+
+            renderSummaryTable(filtered);
+        }
+
+        function setStatusFilter(status, btnEl) {
+            currentStatusFilter = status;
+            document.querySelectorAll('.filter-chip').forEach(chip => chip.classList.remove('active'));
+            if (btnEl) btnEl.classList.add('active');
+            applySummaryFilters();
+        }
+
+        // ---------- ส่งออกตารางสรุปรายวัน (ตามที่กรองอยู่) ----------
+        function getFilteredSummaryData() {
+            const term = document.getElementById('summary-search').value.trim().toLowerCase();
+            return summaryRawData.filter(row => {
+                const status = row[4] || 'ขาดเรียน';
+                const matchesStatus = currentStatusFilter === 'all' || status === currentStatusFilter;
+                const matchesSearch = !term || String(row[2]).toLowerCase().includes(term) || String(row[3]).toLowerCase().includes(term);
+                return matchesStatus && matchesSearch;
+            });
+        }
+
+        function exportSummaryToExcel() {
+            if (!summaryRawData || summaryRawData.length === 0) {
+                alert('ไม่มีข้อมูลให้ส่งออก กรุณาค้นหาข้อมูลก่อน');
+                return;
+            }
+
+            const rows = getFilteredSummaryData();
+            let csv = '\uFEFFรหัสนักเรียน,ชื่อ-นามสกุล,เวลา,สถานะ\n';
+            rows.forEach(row => {
+                const status = row[4] || 'ขาดเรียน';
+                csv += `"${row[2]}","${row[3]}","${row[1]}","${status}"\n`;
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `สรุปการมาเรียน_${summaryCurrentDate.replace(/\//g, '-')}.csv`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function exportSummaryToPDF() {
+            if (!summaryRawData || summaryRawData.length === 0) {
+                alert('ไม่มีข้อมูลให้ส่งออก กรุณาค้นหาข้อมูลก่อน');
+                return;
+            }
+            window.print();
+        }
+
+        // 11. ฟังก์ชันเปลี่ยนสถานะ (มาเรียน/มาสาย/ขาด/ลา)
         async function changeStatus(date, id, name, newStatus) {
             // ค้นหา select element ที่เปลี่ยนค่า และเปลี่ยนสีตามสถานะใหม่
             const selects = document.querySelectorAll(`select[onchange*="${id}"]`);
@@ -899,11 +1104,286 @@
             selects.forEach(sel => sel.disabled = false);
 
             if(res.success) {
+                // อัปเดตข้อมูลดิบในหน่วยความจำให้ตรงกับสถานะใหม่ (กันข้อมูลเพี้ยนตอนกรอง/ส่งออกซ้ำ)
+                summaryRawData = summaryRawData.map(row => {
+                    if (row[0] === date && String(row[2]) === String(id)) {
+                        const newRow = row.slice();
+                        newRow[4] = newStatus;
+                        return newRow;
+                    }
+                    return row;
+                });
+
                 // แสดง Toast แจ้งเตือน
                 toast.classList.remove('opacity-0');
                 setTimeout(() => { toast.classList.add('opacity-0'); }, 3000);
             } else {
                 alert("เกิดข้อผิดพลาดในการบันทึกสถานะ: " + res.error);
+            }
+        }
+
+        // ==========================================================
+        //  📈 หน้ารายงาน (สรุปรายเดือน / กลุ่มเสี่ยง)
+        // ==========================================================
+
+        function initReportSelectors() {
+            const monthSelect = document.getElementById('report-month');
+            const yearSelect = document.getElementById('report-year');
+
+            if (monthSelect.options.length === 0) {
+                const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+                thaiMonths.forEach((m, i) => {
+                    monthSelect.innerHTML += `<option value="${i + 1}">${m}</option>`;
+                });
+                monthSelect.value = new Date().getMonth() + 1;
+            }
+
+            if (yearSelect.options.length === 0) {
+                const currentYear = new Date().getFullYear();
+                for (let y = currentYear - 2; y <= currentYear + 1; y++) {
+                    yearSelect.innerHTML += `<option value="${y}">${y + 543}</option>`;
+                }
+                yearSelect.value = currentYear;
+            }
+        }
+
+        async function fetchMonthlySummary() {
+            const month = document.getElementById('report-month').value;
+            const year = document.getElementById('report-year').value;
+            if (!month || !year) return;
+
+            const emptyEl = document.getElementById('monthly-summary-empty');
+            emptyEl.classList.remove('hidden');
+            emptyEl.innerText = 'กำลังโหลดข้อมูล...';
+            document.getElementById('monthly-summary-container').classList.add('hidden');
+
+            const res = await gasAPI('getMonthlySummary', { month: Number(month), year: Number(year) });
+
+            if (res.success && res.data && res.data.length > 0) {
+                const tbody = document.getElementById('monthly-summary-tbody');
+                tbody.innerHTML = '';
+                res.data.forEach(s => {
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-pink-50">
+                            <td class="py-2 px-3 font-medium">${s.id}</td>
+                            <td class="py-2 px-3">${s.name}</td>
+                            <td class="py-2 px-3">${s.className || '-'}</td>
+                            <td class="py-2 px-3 text-center text-green-700 font-bold">${s.มาเรียน}</td>
+                            <td class="py-2 px-3 text-center text-yellow-700 font-bold">${s.มาสาย}</td>
+                            <td class="py-2 px-3 text-center text-red-700 font-bold">${s.ขาดเรียน}</td>
+                            <td class="py-2 px-3 text-center text-orange-700 font-bold">${s.ลา}</td>
+                        </tr>
+                    `;
+                });
+                emptyEl.classList.add('hidden');
+                document.getElementById('monthly-summary-container').classList.remove('hidden');
+            } else {
+                document.getElementById('monthly-summary-container').classList.add('hidden');
+                emptyEl.classList.remove('hidden');
+                emptyEl.innerText = 'ไม่พบข้อมูลในเดือน/ปีที่เลือก';
+            }
+        }
+
+        async function exportMonthlyToSheetUI() {
+            const month = document.getElementById('report-month').value;
+            const year = document.getElementById('report-year').value;
+            if (!month || !year) return;
+
+            const res = await gasAPI('exportMonthlyReportToSheet', { month: Number(month), year: Number(year) });
+            if (res.success) {
+                alert(`บันทึกสรุปลงชีต "${res.sheetName}" เรียบร้อยแล้ว (${res.rowCount} รายการ)`);
+            } else {
+                alert('เกิดข้อผิดพลาด: ' + res.error);
+            }
+        }
+
+        async function fetchRiskStudents() {
+            const threshold = Number(document.getElementById('risk-threshold').value) || 80;
+
+            const emptyEl = document.getElementById('risk-list-empty');
+            emptyEl.classList.remove('hidden');
+            emptyEl.innerText = 'กำลังค้นหา...';
+            document.getElementById('risk-list-container').classList.add('hidden');
+
+            const res = await gasAPI('getRiskStudentsList', { threshold: threshold });
+
+            if (res.success && res.data && res.data.length > 0) {
+                const tbody = document.getElementById('risk-list-tbody');
+                tbody.innerHTML = '';
+                res.data.forEach(s => {
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-red-50">
+                            <td class="py-2 px-3 font-medium">${s.id}</td>
+                            <td class="py-2 px-3">${s.name}</td>
+                            <td class="py-2 px-3">${s.className || '-'}</td>
+                            <td class="py-2 px-3 text-center font-bold text-red-600">${s.rate}%</td>
+                        </tr>
+                    `;
+                });
+                emptyEl.classList.add('hidden');
+                document.getElementById('risk-list-container').classList.remove('hidden');
+            } else {
+                document.getElementById('risk-list-container').classList.add('hidden');
+                emptyEl.classList.remove('hidden');
+                emptyEl.innerText = 'ไม่พบนักเรียนกลุ่มเสี่ยงตามเกณฑ์ที่กำหนด';
+            }
+        }
+
+        // ==========================================================
+        //  🙋 หน้าแจ้งลาล่วงหน้า
+        // ==========================================================
+
+        function updateLeaveStudentDropdown() {
+            const sel = document.getElementById('leave-student-select');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">-- เลือกนักเรียน --</option>';
+            studentsList.forEach(s => {
+                sel.innerHTML += `<option value="${s.id}">${s.id} - ${s.name}</option>`;
+            });
+        }
+
+        async function submitLeaveRequest() {
+            const studentId = document.getElementById('leave-student-select').value;
+            const leaveDateVal = document.getElementById('leave-date').value;
+            const reason = document.getElementById('leave-reason').value.trim();
+            const msgEl = document.getElementById('leave-msg');
+
+            if (!studentId || !leaveDateVal) {
+                msgEl.innerText = '❌ กรุณาเลือกนักเรียนและระบุวันที่ลา';
+                msgEl.className = 'text-center font-bold text-red-600';
+                return;
+            }
+
+            const student = studentsList.find(s => s.id === studentId);
+            const [year, month, day] = leaveDateVal.split('-');
+            const formattedLeaveDate = `${day}/${month}/${year}`;
+
+            msgEl.innerText = 'กำลังส่งคำขอลา...';
+            msgEl.className = 'text-center font-bold text-yellow-600 animate-pulse';
+
+            const res = await gasAPI('submitLeaveRequest', {
+                studentId: studentId,
+                studentName: student ? student.name : '',
+                date: formattedLeaveDate,
+                reason: reason
+            });
+
+            if (res.success) {
+                msgEl.innerText = '✅ ส่งคำขอลาสำเร็จแล้ว ระบบได้บันทึกสถานะ "ลา" ให้อัตโนมัติ';
+                msgEl.className = 'text-center font-bold text-green-600';
+                document.getElementById('leave-reason').value = '';
+                document.getElementById('leave-date').value = '';
+            } else {
+                msgEl.innerText = '❌ ส่งคำขอไม่สำเร็จ: ' + (res.error || '');
+                msgEl.className = 'text-center font-bold text-red-600';
+            }
+        }
+
+        // ==========================================================
+        //  🗂️ หน้าจัดการนักเรียน
+        // ==========================================================
+
+        function renderManageList() {
+            const container = document.getElementById('manage-student-list');
+            const term = document.getElementById('manage-search').value.trim().toLowerCase();
+
+            const filtered = studentsList.filter(s =>
+                !term || s.id.toLowerCase().includes(term) || s.name.toLowerCase().includes(term)
+            );
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-400 italic py-4">ไม่พบรายชื่อนักเรียน</p>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(s => `
+                <div class="flex justify-between items-center p-3 bg-white border rounded-lg shadow-sm">
+                    <div>
+                        <p class="font-bold text-gray-800">${s.id} - ${s.name}</p>
+                        <p class="text-xs text-gray-500">${s.className || '-'} · ${s.descriptor ? '✅ ลงทะเบียนใบหน้าแล้ว' : '❌ ยังไม่ลงทะเบียนใบหน้า'}</p>
+                    </div>
+                    ${s.descriptor ? `<button onclick="deleteStudentFaceUI('${s.id}')" class="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition shrink-0">ลบใบหน้า</button>` : ''}
+                </div>
+            `).join('');
+        }
+
+        async function deleteStudentFaceUI(studentId) {
+            if (!confirm(`ต้องการลบข้อมูลใบหน้าของรหัสนักเรียน ${studentId} ใช่หรือไม่? (นักเรียนจะต้องลงทะเบียนใบหน้าใหม่)`)) return;
+
+            const res = await gasAPI('deleteStudentFace', { studentId: studentId });
+            if (res.success) {
+                const student = studentsList.find(s => s.id === studentId);
+                if (student) student.descriptor = '';
+                updateDropdown();
+                updateDashboard();
+                renderManageList();
+            } else {
+                alert('ลบไม่สำเร็จ: ' + res.error);
+            }
+        }
+
+        async function addStudentUI() {
+            const msgEl = document.getElementById('add-student-msg');
+            const data = {
+                no: document.getElementById('add-no').value.trim(),
+                studentId: document.getElementById('add-id').value.trim(),
+                prefix: document.getElementById('add-prefix').value.trim(),
+                firstName: document.getElementById('add-firstname').value.trim(),
+                lastName: document.getElementById('add-lastname').value.trim(),
+                className: document.getElementById('add-class').value.trim(),
+                subject: document.getElementById('add-subject').value.trim(),
+                parentLineId: document.getElementById('add-lineid').value.trim()
+            };
+
+            if (!data.studentId) {
+                msgEl.innerText = '❌ กรุณากรอกรหัสนักเรียน';
+                msgEl.className = 'mt-2 font-bold text-red-600';
+                return;
+            }
+
+            msgEl.innerText = 'กำลังบันทึก...';
+            msgEl.className = 'mt-2 font-bold text-yellow-600 animate-pulse';
+
+            const res = await gasAPI('addStudent', { data: data });
+
+            if (res.success) {
+                msgEl.innerText = '✅ เพิ่มนักเรียนสำเร็จ';
+                msgEl.className = 'mt-2 font-bold text-green-600';
+                ['add-no','add-id','add-prefix','add-firstname','add-lastname','add-class','add-subject','add-lineid'].forEach(id => {
+                    document.getElementById(id).value = '';
+                });
+                await refreshStudentsList();
+                renderManageList();
+            } else {
+                msgEl.innerText = '❌ เพิ่มไม่สำเร็จ: ' + (res.error || '');
+                msgEl.className = 'mt-2 font-bold text-red-600';
+            }
+        }
+
+        async function bulkImportUI() {
+            const msgEl = document.getElementById('bulk-import-msg');
+            const csvData = document.getElementById('bulk-csv').value.trim();
+
+            if (!csvData) {
+                msgEl.innerText = '❌ กรุณากรอกข้อมูล CSV';
+                msgEl.className = 'mt-2 font-bold text-red-600';
+                return;
+            }
+
+            msgEl.innerText = 'กำลังนำเข้าข้อมูล...';
+            msgEl.className = 'mt-2 font-bold text-yellow-600 animate-pulse';
+
+            const res = await gasAPI('bulkImportStudents', { csvData: csvData });
+
+            if (res.success) {
+                msgEl.innerText = `✅ นำเข้าสำเร็จ ${res.imported} คน (ข้าม ${res.skipped} คน ที่ซ้ำหรือข้อมูลไม่ครบ)`;
+                msgEl.className = 'mt-2 font-bold text-green-600';
+                document.getElementById('bulk-csv').value = '';
+                await refreshStudentsList();
+                renderManageList();
+            } else {
+                msgEl.innerText = '❌ นำเข้าไม่สำเร็จ: ' + (res.error || '');
+                msgEl.className = 'mt-2 font-bold text-red-600';
             }
         }
     </script>
