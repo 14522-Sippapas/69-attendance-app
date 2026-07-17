@@ -394,6 +394,10 @@
         let attendanceCount = 0; 
         const duplicateCooldown = new Map(); 
 
+        // ---------- 🔄 สถานะสำหรับสลับกล้องหน้า/หลัง ----------
+        let currentStream = null;
+        let currentFacingMode = 'user'; // 'user' = กล้องหน้า, 'environment' = กล้องหลัง
+
         const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
 
         summaryDateInput.valueAsDate = new Date();
@@ -588,10 +592,56 @@
         }
 
         function startVideo() {
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-                .then(stream => { video.srcObject = stream; })
+            // ปิดสตรีมกล้องเดิมก่อน (ถ้ามี) เพื่อป้องกันกล้องค้างตอนสลับกล้องหรือสลับแท็บ
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } })
+                .then(stream => {
+                    currentStream = stream;
+                    video.srcObject = stream;
+                })
                 .catch(err => {
                     statusText.innerText = "กรุณาอนุญาตการเข้าถึงกล้อง";
+                });
+        }
+
+        // ---------- switchCamera() ----------
+        // สลับกล้องหน้า (user) / กล้องหลัง (environment) แล้วเปิดสตรีมใหม่
+        // ถ้ากำลังอยู่โหมดเช็คชื่อ (checkin) จะรีสตาร์ทการตรวจจับใบหน้าให้ทำงานกับกล้องตัวใหม่ด้วย
+        function switchCamera() {
+            currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+
+            if (currentMode === 'checkin') {
+                stopDetection();
+            }
+
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } })
+                .then(stream => {
+                    if (currentStream) {
+                        currentStream.getTracks().forEach(track => track.stop());
+                    }
+                    currentStream = stream;
+                    video.srcObject = stream;
+
+                    // เอา canvas เดิมออก เพื่อให้ startDetection() สร้างใหม่ให้ตรงกับขนาดวิดีโอของกล้องตัวใหม่
+                    const oldCanvas = document.querySelector('canvas');
+                    if (oldCanvas) oldCanvas.remove();
+
+                    if (currentMode === 'checkin' && faceMatcher) {
+                        video.onloadedmetadata = () => {
+                            startDetection();
+                        };
+                    }
+                })
+                .catch(err => {
+                    // สลับไม่สำเร็จ (เช่น อุปกรณ์ไม่มีกล้องหลัง) ให้คืนค่าเดิมและแจ้งเตือน
+                    currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+                    statusText.innerText = "ไม่สามารถสลับกล้องได้ กรุณาลองใหม่";
+                    if (currentMode === 'checkin' && faceMatcher) {
+                        startDetection();
+                    }
                 });
         }
 
