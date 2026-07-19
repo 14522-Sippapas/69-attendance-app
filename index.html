@@ -132,6 +132,12 @@
                     <button id="btn-switch-camera" onclick="switchCamera()" title="สลับกล้องหน้า/หลัง" class="absolute top-3 right-3 z-10 bg-black/50 hover:bg-black/70 text-white rounded-full w-10 h-10 flex items-center justify-center text-xl transition">🔄</button>
                 </div>
 
+                <!-- ปุ่มกลับกล้อง (พลิกภาพแนวนอน) ซ้ายไปขวา / ขวาไปซ้าย -->
+                <div class="flex justify-center gap-2 mt-3">
+                    <button id="btn-flip-ltr" onclick="setCameraFlip(false)" title="แสดงภาพปกติ (ซ้ายไปขวา)" class="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow hover:bg-indigo-700 transition">↔️ ซ้ายไปขวา</button>
+                    <button id="btn-flip-rtl" onclick="setCameraFlip(true)" title="กลับภาพ (ขวาไปซ้าย)" class="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-bold rounded-lg shadow hover:bg-gray-300 transition">↔️ ขวาไปซ้าย</button>
+                </div>
+
                 <div id="register-ui" class="mt-6 hidden">
                     <p class="text-sm text-gray-500 mb-2">เลือกรายชื่อนักเรียนเพื่อสแกนและบันทึกใบหน้า</p>
                     <select id="student-select" class="w-full max-w-md p-3 border rounded-lg mb-4 text-center text-lg">
@@ -277,7 +283,8 @@
                         <li><strong class="text-indigo-700">เลือกวิชา/กิจกรรมที่จะเช็คชื่อก่อนทุกครั้ง</strong> (เช่น คาบวิชา A, ชมรม B) ระบบจะยังไม่บันทึกอะไรจนกว่าจะเลือก</li>
                         <li>ให้นักเรียนที่ลงทะเบียนแล้วเดินมาอยู่หน้ากล้อง ระบบจะจดจำใบหน้าอัตโนมัติ</li>
                         <li>เช็คชื่อได้ <strong>หลายครั้งต่อวัน</strong> ตราบใดที่เป็นคนละวิชา/กิจกรรม (เปลี่ยนวิชาแล้วเช็คชื่อใหม่ได้ทันที)</li>
-                        <li>ข้อมูลจะถูกส่งไปบันทึกในชีตเช็คชื่อของห้องนั้นๆ อัตโนมัติ (เช่น "เช็คชื่อ_ม.1-1")</li>
+                        <li>ข้อมูลจะถูกส่งไปบันทึกในชีตเช็คชื่อของห้องนั้นๆ อัตโนมัติ (เช่น "เช็คชื่อ_ม.101")</li>
+                        <li>ถ้าภาพจากกล้องกลับด้าน (เหมือนอ่านตัวอักษรกลับหัว) ใช้ปุ่ม <strong>↔️ ซ้ายไปขวา / ↔️ ขวาไปซ้าย</strong> ใต้ภาพกล้องเพื่อพลิกภาพให้ถูกต้อง</li>
                     </ul>
                 </div>
 
@@ -594,6 +601,7 @@
 
         let currentStream = null;
         let currentFacingMode = 'user';
+        let isCameraFlipped = false; // สถานะพลิกภาพแนวนอน: false = ซ้ายไปขวา (ปกติ), true = ขวาไปซ้าย (กลับด้าน)
 
         let summaryRawData = [];
         let currentStatusFilter = 'all';
@@ -992,6 +1000,27 @@
                 });
         }
 
+        // ---------- ↔️ ปุ่มกลับกล้อง (พลิกภาพแนวนอน) ซ้ายไปขวา / ขวาไปซ้าย ----------
+        function setCameraFlip(flipped) {
+            isCameraFlipped = flipped;
+            video.style.transform = flipped ? 'scaleX(-1)' : 'scaleX(1)';
+
+            const canvas = document.querySelector('canvas');
+            if (canvas) canvas.style.transform = flipped ? 'scaleX(-1)' : 'scaleX(1)';
+
+            const btnLtr = document.getElementById('btn-flip-ltr');
+            const btnRtl = document.getElementById('btn-flip-rtl');
+            if (btnLtr && btnRtl) {
+                if (flipped) {
+                    btnLtr.className = "px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-bold rounded-lg shadow hover:bg-gray-300 transition";
+                    btnRtl.className = "px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow hover:bg-indigo-700 transition";
+                } else {
+                    btnLtr.className = "px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg shadow hover:bg-indigo-700 transition";
+                    btnRtl.className = "px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-bold rounded-lg shadow hover:bg-gray-300 transition";
+                }
+            }
+        }
+
         // ---------- เลือกวิชา/กิจกรรมก่อนเช็คชื่อ ----------
         function onSubjectChange() {
             const sel = document.getElementById('checkin-subject-select');
@@ -1087,6 +1116,7 @@
                 canvas = faceapi.createCanvasFromMedia(video);
                 document.querySelector('.video-wrapper').append(canvas);
             }
+            canvas.style.transform = isCameraFlipped ? 'scaleX(-1)' : 'scaleX(1)';
 
             const displaySize = { width: video.clientWidth, height: video.clientHeight };
             faceapi.matchDimensions(canvas, displaySize);
@@ -1924,13 +1954,13 @@
             if (!student) return;
 
             document.getElementById('edit-student-id').value = studentId;
-            document.getElementById('edit-no').value = '';
-            document.getElementById('edit-prefix').value = '';
-            document.getElementById('edit-firstname').value = student.name || '';
-            document.getElementById('edit-lastname').value = '';
+            document.getElementById('edit-no').value = student.no || '';
+            document.getElementById('edit-prefix').value = student.prefix || '';
+            document.getElementById('edit-firstname').value = student.firstName || '';
+            document.getElementById('edit-lastname').value = student.lastName || '';
             document.getElementById('edit-class').value = student.className || '';
-            document.getElementById('edit-subject').value = '';
-            document.getElementById('edit-lineid').value = '';
+            document.getElementById('edit-subject').value = student.subject || '';
+            document.getElementById('edit-lineid').value = student.parentLineId || '';
             document.getElementById('edit-student-msg').innerText = '';
 
             document.getElementById('edit-student-modal').classList.remove('hidden');
