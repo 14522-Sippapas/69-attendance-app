@@ -51,6 +51,10 @@
 
     <script>
         const API_URL = "https://script.google.com/macros/s/AKfycbyd0qlUlTKgEMnkLIirumdggLNLKBitu6hZO-M2nZGNk-0kGs6wn7C49aWbsyfJwVYD/exec";
+        // ต้องตั้งค่าให้ตรงกับตัวแปร SECRET_TOKEN ใน Code.gs (ฝั่ง Backend) ทุกครั้ง
+        // ถ้าฝั่ง Backend ตั้ง SECRET_TOKEN เป็นค่าว่าง "" ระบบจะไม่ตรวจสอบ token เลย (เปิดให้ทุกคนเรียกได้)
+        // แนะนำให้ตั้งค่าทั้งสองฝั่งให้ตรงกันเพื่อป้องกันคนนอกเรียก API โดยไม่ได้รับอนุญาต
+        const SECRET_TOKEN = "";
     </script>
 
     <div class="max-w-6xl mx-auto p-4 mt-4">
@@ -613,6 +617,12 @@
 
         summaryDateInput.valueAsDate = new Date();
 
+        // ---------- 🔒 ช่วย escape ข้อความก่อนฝังใน onclick="...('...')" ----------
+        // ป้องกัน onclick พังหรือถูกแทรกโค้ดถ้าชื่อ/เหตุผล/ข้อมูลมีเครื่องหมาย ' หรือ \ ปนอยู่
+        function escJs(str) {
+            return String(str == null ? '' : str).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        }
+
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         function playSound(type) {
             if(audioCtx.state === 'suspended') audioCtx.resume();
@@ -662,7 +672,7 @@
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: action, ...payload })
+                    body: JSON.stringify({ action: action, token: SECRET_TOKEN, ...payload })
                 });
                 return await response.json();
             } catch (err) {
@@ -801,7 +811,7 @@
             container.innerHTML = subjectsList.map(s => `
                 <span class="inline-flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 text-sm font-semibold px-3 py-1 rounded-full">
                     ${s.name}
-                    <button onclick="deleteSubjectUI('${s.name.replace(/'/g, "\\'")}')" class="text-indigo-400 hover:text-red-600 font-bold">✕</button>
+                    <button onclick="deleteSubjectUI('${escJs(s.name)}')" class="text-indigo-400 hover:text-red-600 font-bold">✕</button>
                 </span>
             `).join('');
         }
@@ -864,9 +874,23 @@
             }
         }
 
+        // ---------- 📷 หยุดสตรีมกล้อง (ปิดไฟกล้องจริง ไม่ใช่แค่หยุด detection) ----------
+        function stopCameraStream() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+                currentStream = null;
+            }
+            if (video) video.srcObject = null;
+        }
+
         async function switchTab(mode) {
             currentMode = mode;
             stopDetection();
+
+            // ออกจากแท็บที่ใช้กล้อง (register/checkin) ไปแท็บอื่น -> ปิดกล้องจริงเพื่อไม่ให้ไฟกล้องค้าง
+            if (mode !== 'register' && mode !== 'checkin') {
+                stopCameraStream();
+            }
 
             if(audioCtx.state === 'suspended') audioCtx.resume();
 
@@ -1343,6 +1367,7 @@
             }
         }
 
+        // row: [วันที่, เวลา, รหัสนักเรียน, ชื่อ-นามสกุล, สถานะ, วิชาที่ใช้อ้างอิงจริง(actualSubject) หรือ null]
         function renderSummaryTable(data) {
             const tbody = document.getElementById('summary-tbody');
             tbody.innerHTML = '';
@@ -1354,6 +1379,7 @@
 
             data.forEach(row => {
                 const status = row[4] || 'ขาดเรียน';
+                const actualSubject = row[5] || '';
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-purple-50 transition-colors">
@@ -1362,7 +1388,7 @@
                         <td class="py-3 px-4 text-gray-500 text-sm">${row[1]}</td>
                         <td class="py-3 px-4 text-center">
                             <select
-                                onchange="changeStatus('${summaryCurrentDate}', '${row[2]}', '${row[3]}', this.value)"
+                                onchange="changeStatus('${summaryCurrentDate}', '${escJs(row[2])}', '${escJs(row[3])}', this.value, '${escJs(actualSubject)}')"
                                 class="border-2 rounded-lg px-2 py-1 text-sm font-bold focus:outline-none cursor-pointer status-${status}"
                             >
                                 <option value="มาเรียน" ${status === 'มาเรียน' ? 'selected' : ''}>มาเรียน</option>
@@ -1467,9 +1493,14 @@
             }
         }
 
-        async function changeStatus(date, id, name, newStatus) {
+        // การเปลี่ยนสถานะ: ต้องแก้ "แถวจริง" ที่กำลังแสดงผลอยู่เสมอ
+        // actualSubject มาจาก getDailySummary (row[5]) คือวิชาของแถวจริงที่ใช้แสดงสถานะนี้อยู่
+        // (ถ้ามี ให้ใช้ค่านี้ก่อนเสมอ แม้จะกำลังดูมุมมอง "ทุกวิชา" อยู่ก็ตาม เพื่อไม่ให้ไปสร้างแถว "ทั้งวัน" ทับของเดิมโดยไม่ตั้งใจ
+        // ถ้ายังไม่มีแถวใดๆ เลย (actualSubject ว่าง) ค่อย fallback ไปที่ตัวกรองวิชาที่เลือกอยู่ หรือปล่อยให้ backend ใช้ "ทั้งวัน" เป็นค่าเริ่มต้น)
+        async function changeStatus(date, id, name, newStatus, actualSubject) {
             const classFilter = document.getElementById('summary-class-filter').value;
             const subjectFilter = document.getElementById('summary-subject-filter').value;
+            const subjectToUse = actualSubject || subjectFilter || undefined;
 
             const selects = document.querySelectorAll(`select[onchange*="${id}"]`);
             selects.forEach(sel => {
@@ -1479,16 +1510,18 @@
 
             const res = await gasAPI('updateStatus', {
                 date: date, studentId: id, studentName: name, status: newStatus,
-                className: classFilter, subject: subjectFilter || undefined
+                className: classFilter, subject: subjectToUse
             });
 
             selects.forEach(sel => sel.disabled = false);
 
             if(res.success) {
+                const finalSubject = subjectToUse || 'ทั้งวัน';
                 summaryRawData = summaryRawData.map(row => {
                     if (row[0] === date && String(row[2]) === String(id)) {
                         const newRow = row.slice();
                         newRow[4] = newStatus;
+                        newRow[5] = finalSubject; // จดจำวิชาที่บันทึกจริง ไว้ใช้อ้างอิงตอนแก้ไขครั้งถัดไปในรอบเดียวกัน
                         return newRow;
                     }
                     return row;
@@ -1552,7 +1585,7 @@
                             <td class="py-2 px-3 text-center text-yellow-700 font-bold">${s.มาสาย}</td>
                             <td class="py-2 px-3 text-center text-red-700 font-bold">${s.ขาดเรียน}</td>
                             <td class="py-2 px-3 text-center text-orange-700 font-bold">${s.ลา}</td>
-                            <td class="py-2 px-3 text-center"><button onclick="quickViewHistory('${s.id}')" class="text-blue-600 hover:underline text-xs font-bold">ดูประวัติ</button></td>
+                            <td class="py-2 px-3 text-center"><button onclick="quickViewHistory('${escJs(s.id)}')" class="text-blue-600 hover:underline text-xs font-bold">ดูประวัติ</button></td>
                         </tr>
                     `;
                 });
@@ -1631,7 +1664,7 @@
                             <td class="py-2 px-3">${s.name}</td>
                             <td class="py-2 px-3">${s.className || '-'}</td>
                             <td class="py-2 px-3 text-center font-bold text-red-600">${s.rate}%</td>
-                            <td class="py-2 px-3 text-center"><button onclick="notifyRiskStudent('${s.id}')" class="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded hover:bg-orange-200 transition">🔔 แจ้งผู้ปกครอง</button></td>
+                            <td class="py-2 px-3 text-center"><button onclick="notifyRiskStudent('${escJs(s.id)}')" class="px-2 py-1 bg-orange-100 text-orange-700 text-xs font-bold rounded hover:bg-orange-200 transition">🔔 แจ้งผู้ปกครอง</button></td>
                         </tr>
                     `;
                 });
@@ -1806,8 +1839,8 @@
                         <td class="py-2 px-3">${r.reason || '-'}</td>
                         <td class="py-2 px-3 text-center"><span class="px-2 py-1 rounded-lg text-xs font-bold border ${statusClass}">${r.status}</span></td>
                         <td class="py-2 px-3 text-center whitespace-nowrap">
-                            <button onclick="decideLeaveRequest(${r.rowIndex}, '${r.studentId}', '${r.leaveDate}', 'อนุมัติ')" class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded hover:bg-green-200 transition mr-1">✅ อนุมัติ</button>
-                            <button onclick="decideLeaveRequest(${r.rowIndex}, '${r.studentId}', '${r.leaveDate}', 'ไม่อนุมัติ')" class="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded hover:bg-red-200 transition">❌ ไม่อนุมัติ</button>
+                            <button onclick="decideLeaveRequest(${r.rowIndex}, '${escJs(r.studentId)}', '${escJs(r.leaveDate)}', 'อนุมัติ')" class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded hover:bg-green-200 transition mr-1">✅ อนุมัติ</button>
+                            <button onclick="decideLeaveRequest(${r.rowIndex}, '${escJs(r.studentId)}', '${escJs(r.leaveDate)}', 'ไม่อนุมัติ')" class="px-2 py-1 bg-red-100 text-red-700 text-xs font-bold rounded hover:bg-red-200 transition">❌ ไม่อนุมัติ</button>
                         </td>
                     </tr>
                     `;
@@ -1859,8 +1892,8 @@
                         <p class="text-xs text-gray-500">${s.className || '-'} · ${s.descriptor ? '✅ ลงทะเบียนใบหน้าแล้ว' : '❌ ยังไม่ลงทะเบียนใบหน้า'}</p>
                     </div>
                     <div class="flex gap-2 shrink-0">
-                        <button onclick="openEditStudentModal('${s.id}')" class="px-3 py-1 bg-blue-100 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-200 transition">✏️ แก้ไข</button>
-                        ${s.descriptor ? `<button onclick="deleteStudentFaceUI('${s.id}')" class="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition">ลบใบหน้า</button>` : ''}
+                        <button onclick="openEditStudentModal('${escJs(s.id)}')" class="px-3 py-1 bg-blue-100 text-blue-600 text-xs font-bold rounded-lg hover:bg-blue-200 transition">✏️ แก้ไข</button>
+                        ${s.descriptor ? `<button onclick="deleteStudentFaceUI('${escJs(s.id)}')" class="px-3 py-1 bg-red-100 text-red-600 text-xs font-bold rounded-lg hover:bg-red-200 transition">ลบใบหน้า</button>` : ''}
                     </div>
                 </div>
             `).join('');
